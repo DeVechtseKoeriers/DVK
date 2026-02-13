@@ -434,8 +434,9 @@ if (editOther && shipment.shipment_type_other) {
   document.getElementById("saveEdit").onclick = async () => {
     const supabaseClient = await ensureClient();
 
-    const selectedType = form.querySelector("#editType")?.value || "doos";
-const otherValue = form.querySelector("#editOther")?.value || "").trim() || null;
+    const selectedType = (form.querySelector("#editType")?.value || "doos");
+const editOtherEl = form.querySelector("#editOther");
+const otherValue = ((editOtherEl && editOtherEl.value) || "").trim() || null;
 
 const updatePayload = {
   customer_name: form.querySelector("#editCustomer")?.value || "",
