@@ -374,13 +374,59 @@ actions.append(
 function openEditMode(cardDiv, shipment) {
   const form = document.createElement("div");
   form.innerHTML = `
-    <input id="editCustomer" value="${shipment.customer_name}" />
-    <input id="editPickup" value="${shipment.pickup_address}" />
-    <input id="editDelivery" value="${shipment.delivery_address}" />
-    <input id="editColli" type="number" value="${shipment.colli_count}" />
-    <button id="saveEdit">Opslaan</button>
-    <button id="cancelEdit">Annuleren</button>
-  `;
+  <hr/>
+  <b>Zending wijzigen</b><br/><br/>
+
+  <label>Klantnaam</label>
+  <input id="editCustomer" value="${escapeHtml(shipment.customer_name)}" />
+
+  <label>Ophaaladres</label>
+  <input id="editPickup" value="${escapeHtml(shipment.pickup_address)}" />
+
+  <label>Bezorgadres</label>
+  <input id="editDelivery" value="${escapeHtml(shipment.delivery_address)}" />
+
+  <label>Type zending</label>
+  <select id="editType">
+    <option value="doos">Doos</option>
+    <option value="enveloppe">Enveloppe</option>
+    <option value="pallet">Pallet</option>
+    <option value="overig">Overig</option>
+  </select>
+
+  <div id="editOtherWrap" style="display:none;">
+    <label>Overig (invullen)</label>
+    <input id="editOther" placeholder="Bijv. koelbox / tas" value="${escapeHtml(shipment.shipment_type_other || "")}" />
+  </div>
+
+  <label>Aantal colli</label>
+  <input id="editColli" type="number" min="1" value="${shipment.colli_count}" />
+
+  <br/><br/>
+  <button id="saveEdit">Opslaan</button>
+  <button id="cancelEdit" type="button">Annuleren</button>
+`;
+  // ✅ Stap 2: default waarde + overig tonen/verbergen
+const editType = form.querySelector("#editType");
+const editOtherWrap = form.querySelector("#editOtherWrap");
+const editOther = form.querySelector("#editOther");
+
+if (editType) {
+  editType.value = shipment.shipment_type || "doos";
+}
+
+function toggleOther() {
+  const isOther = editType && editType.value === "overig";
+  if (editOtherWrap) editOtherWrap.style.display = isOther ? "block" : "none";
+}
+
+toggleOther();
+if (editType) editType.addEventListener("change", toggleOther);
+
+// Zet bestaande overig waarde alvast goed
+if (editOther && shipment.shipment_type_other) {
+  editOther.value = shipment.shipment_type_other;
+}
   cardDiv.appendChild(form);
 
   document.getElementById("cancelEdit").onclick = () => {
