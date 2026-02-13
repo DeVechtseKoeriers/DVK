@@ -1,11 +1,19 @@
-// DVK Dashboard (clean version)
+// DVK Dashboard (Delivered modal version)
 
 const listEl = document.getElementById("list");
 const createMsg = document.getElementById("createMsg");
-const whoEl = document.getElementById("who");
-
 const typeEl = document.getElementById("shipment_type");
 const otherWrap = document.getElementById("otherWrap");
+
+const overlay = document.getElementById("modalOverlay");
+const modalShipmentInfo = document.getElementById("modalShipmentInfo");
+const modalReceiver = document.getElementById("modalReceiver");
+const modalNote = document.getElementById("modalNote");
+const modalError = document.getElementById("modalError");
+const modalCancel = document.getElementById("modalCancel");
+const modalConfirm = document.getElementById("modalConfirm");
+
+let currentDeliveryShipment = null;
 
 function msg(text) {
   if (createMsg) createMsg.textContent = text || "";
@@ -19,10 +27,7 @@ function escapeHtml(str) {
 }
 
 async function ensureClient() {
-  if (!window.supabaseClient) {
-    msg("Supabase client niet geladen. Controleer supabase-config.js pad.");
-    throw new Error("supabaseClient missing");
-  }
+  if (!window.supabaseClient) throw new Error("supabaseClient missing");
   return window.supabaseClient;
 }
 
@@ -42,24 +47,21 @@ if (typeEl && otherWrap) {
   });
 }
 
-// Logout (veilig)
-(async () => {
-  const logoutBtn = document.getElementById("btnLogout");
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", async () => {
-      const supabaseClient = await ensureClient();
-      await supabaseClient.auth.signOut();
-      window.location.href = "/DVK/driver/login.html";
-    });
-  }
-})();
+// Logout
+const logoutBtn = document.getElementById("btnLogout");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", async () => {
+    const supabaseClient = await ensureClient();
+    await supabaseClient.auth.signOut();
+    window.location.href = "/DVK/driver/login.html";
+  });
+}
 
 async function addEvent(shipmentId, eventType, note = null) {
   const supabaseClient = await ensureClient();
   const { error } = await supabaseClient
     .from("shipment_events")
     .insert({ shipment_id: shipmentId, event_type: eventType, note });
-
   if (error) console.error("event insert error:", error);
 }
 
@@ -107,9 +109,10 @@ async function updateStatus(shipment, newStatus, extra = {}) {
     return;
   }
 
-  const eventNote = extra.problem_note || extra.delivered_note || extra.archive_note || null;
-  await addEvent(shipment.id, newStatus, eventNote);
+  const eventNote =
+    extra.problem_note || extra.delivered_note || extra.archive_note || null;
 
+  await addEvent(shipment.id, newStatus, eventNote);
   await loadShipments(shipment.driver_id);
 }
 
@@ -119,6 +122,64 @@ function button(text, onClick) {
   b.addEventListener("click", onClick);
   return b;
 }
+
+function openDeliveredModal(shipment) {
+  currentDeliveryShipment = shipment;
+
+  modalError.textContent = "";
+  modalReceiver.value = "";
+  modalNote.value = "";
+
+  const typeText =
+    (shipment.shipment_type === "overig")
+      ? (shipment.shipment_type_other || "overig")
+      : shipment.shipment_type;
+
+  modalShipmentInfo.innerHTML = `
+    <b>${escapeHtml(shipment.track_code)}</b><br/>
+    ${escapeHtml(shipment.pickup_address)} → ${escapeHtml(shipment.delivery_address)}<br/>
+    <span class="small">Type: ${escapeHtml(typeText)} • Colli: ${shipment.colli_count}</span>
+  `;
+
+  overlay.style.display = "flex";
+  setTimeout(() => modalReceiver.focus(), 50);
+}
+
+function closeDeliveredModal() {
+  overlay.style.display = "none";
+  currentDeliveryShipment = null;
+}
+
+modalCancel.addEventListener("click", closeDeliveredModal);
+overlay.addEventListener("click", (e) => {
+  if (e.target === overlay) closeDeliveredModal();
+});
+
+modalConfirm.addEventListener("click", async () => {
+  if (!currentDeliveryShipment) return;
+
+  const receiver = modalReceiver.value.trim();
+  const note = modalNote.value.trim() || null;
+
+  if (!receiver) {
+    modalError.textContent = "Naam ontvanger is verplicht.";
+    modalReceiver.focus();
+    return;
+  }
+
+  modalConfirm.disabled = true;
+  modalError.textContent = "";
+
+  try {
+    await updateStatus(currentDeliveryShipment, "AFGELEVERD", {
+      receiver_name: receiver,
+      delivered_note: note
+    });
+    closeDeliveredModal();
+  } finally {
+    modalConfirm.disabled = false;
+  }
+});
 
 function renderShipmentCard(s) {
   const div = document.createElement("div");
@@ -153,12 +214,7 @@ function renderShipmentCard(s) {
       if (!note) return;
       await updateStatus(s, "PROBLEEM", { problem_note: note });
     }),
-    button("Afgeleverd", async () => {
-      const receiver = prompt("Naam ontvanger (verplicht):");
-      if (!receiver) return alert("Ontvanger is verplicht.");
-      const note = prompt("Opmerking (optioneel):") || null;
-      await updateStatus(s, "AFGELEVERD", { receiver_name: receiver, delivered_note: note });
-    }),
+    button("Afgeleverd", () => openDeliveredModal(s)),
     button("Archiveren", async () => {
       const note = prompt("Archief notitie (optioneel):") || null;
       await updateStatus(s, "GEARCHIVEERD", {
@@ -178,12 +234,12 @@ async function createShipment(user) {
   const supabaseClient = await ensureClient();
   msg("Bezig...");
 
-  const customer_name = document.getElementById("customer_name")?.value.trim() || "";
-  const pickup_address = document.getElementById("pickup_address")?.value.trim() || "";
-  const delivery_address = document.getElementById("delivery_address")?.value.trim() || "";
-  const shipment_type = document.getElementById("shipment_type")?.value || "doos";
-  const shipment_type_other = document.getElementById("shipment_type_other")?.value.trim() || null;
-  const colli_count = parseInt(document.getElementById("colli_count")?.value || "1", 10);
+  const customer_name = document.getElementById("customer_name").value.trim();
+  const pickup_address = document.getElementById("pickup_address").value.trim();
+  const delivery_address = document.getElementById("delivery_address").value.trim();
+  const shipment_type = document.getElementById("shipment_type").value;
+  const shipment_type_other = document.getElementById("shipment_type_other").value.trim() || null;
+  const colli_count = parseInt(document.getElementById("colli_count").value || "1", 10);
 
   if (!customer_name || !pickup_address || !delivery_address) {
     msg("Vul klantnaam + ophaaladres + bezorgadres in.");
@@ -221,7 +277,6 @@ async function createShipment(user) {
 
 (async () => {
   const user = await requireAuth();
-  if (whoEl) whoEl.textContent = user.email || "";
 
   const btnCreate = document.getElementById("btnCreate");
   if (btnCreate) btnCreate.addEventListener("click", () => createShipment(user));
