@@ -67,9 +67,16 @@
   </div>
 
   <div class="card">
-    <h2>Actieve zendingen</h2>
-    <div id="list"></div>
+  <h2>Zendingen</h2>
+
+  <div style="display:flex; gap:10px; margin-bottom:10px;">
+    <button id="tabActive" type="button">Actief</button>
+    <button id="tabArchived" type="button">Gearchiveerd</button>
   </div>
+
+  <div id="list"></div>
+  <div id="listArchived" style="display:none;"></div>
+</div>
 
   <!-- Modal: Afgeleverd + handtekening + fotos -->
   <div id="modalOverlay" class="modal-overlay" style="display:none;">
