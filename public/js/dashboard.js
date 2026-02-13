@@ -28,7 +28,15 @@ typeEl.addEventListener("change", () => {
   otherWrap.style.display = (typeEl.value === "overig") ? "block" : "none";
 });
 
-document.getElementById("btnLogout").addEventListener("click", async () => {
+const logoutBtn = document.getElementById("btnLogout");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", async () => {
+    const supabaseClient = await ensureClient();
+    await supabaseClient.auth.signOut();
+    window.location.href = "/DVK/driver/login.html";
+  });
+}
+
   const supabaseClient = await ensureClient();
   await supabaseClient.auth.signOut();
   window.location.href = "/DVK/driver/login.html";
