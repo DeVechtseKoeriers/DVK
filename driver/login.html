@@ -1,13 +1,31 @@
 <!doctype html>
-<html>
+<html lang="nl">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DVK Chauffeur Login</title>
+  <link rel="stylesheet" href="/DVK/public/css/app.css?v=1" />
 </head>
 <body>
-  <h1>Chauffeur Login</h1>
-  <input id="email" placeholder="email">
-  <input id="password" type="password" placeholder="wachtwoord">
-  <button>Login</button>
+  <div class="card">
+    <h1>Chauffeur inloggen</h1>
+
+    <label>Email</label>
+    <input id="email" type="email" placeholder="chauffeur@dvk.nl" autocomplete="username" />
+
+    <label>Wachtwoord</label>
+    <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+
+    <button id="btnLogin">Inloggen</button>
+    <p id="msg"></p>
+
+    <hr />
+    <small>DVK Koeriers • Chauffeursportaal</small>
+  </div>
+
+  <!-- scripts onderaan -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/DVK/public/js/supabase-config.js?v=2"></script>
+  <script src="/DVK/public/js/driver-login.js?v=2"></script>
 </body>
 </html>
