@@ -445,7 +445,15 @@ if (!s.archived_at) {
   if (!s.archived_at && s.status === "AFGELEVERD") {
   actions.append(
     button("Archiveer", async () => {
-      await updateStatus(s, "GEARCHIVEERD");
+      await updateStatus(s, "GEARCHIVEERD", {
+        archived_at: new Date().toISOString()
+      });
+
+      // ✅ direct UI verversen zodat hij naar Archief gaat
+      await loadShipments(currentUserId);
+
+      // ✅ optioneel: meteen naar Archief-tab
+      if (typeof setTab === "function") setTab("archived");
     })
   );
 }
