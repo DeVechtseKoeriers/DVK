@@ -1,6 +1,30 @@
 // DVK Dashboard - delivered modal + signature + photo upload
 
 const listEl = document.getElementById("list");
+const listArchivedEl = document.getElementById("listArchived");
+const tabActive = document.getElementById("tabActive");
+const tabArchived = document.getElementById("tabArchived");
+
+if (tabActive) {
+  tabActive.addEventListener("click", () => setTab("active"));
+}
+
+if (tabArchived) {
+  tabArchived.addEventListener("click", () => setTab("archived"));
+}
+
+let currentTab = "active";
+
+function setTab(tab) {
+  currentTab = tab;
+
+  const isActive = tab === "active";
+  if (listEl) listEl.style.display = isActive ? "block" : "none";
+  if (listArchivedEl) listArchivedEl.style.display = isActive ? "none" : "block";
+
+  if (tabActive) tabActive.disabled = isActive;
+  if (tabArchived) tabArchived.disabled = !isActive;
+}
 const createMsg = document.getElementById("createMsg");
 const typeEl = document.getElementById("shipment_type");
 const otherWrap = document.getElementById("otherWrap");
@@ -150,27 +174,52 @@ async function addEvent(shipmentId, eventType, note = null) {
 // ---------------- list + update
 async function loadShipments(driverId) {
   const supabaseClient = await ensureClient();
-  listEl.innerHTML = "Laden...";
+
+  // beide lijsten leegmaken (actief + archief)
+  if (listEl) listEl.innerHTML = "Laden...";
+  if (listArchivedEl) listArchivedEl.innerHTML = "";
 
   const { data, error } = await supabaseClient
     .from("shipments")
     .select("*")
     .eq("driver_id", driverId)
-    .neq("status", "GEARCHIVEERD")
     .order("created_at", { ascending: false });
 
   if (error) {
-    listEl.innerHTML = "Fout: " + error.message;
+    if (listEl) listEl.innerHTML = "Fout: " + error.message;
     return;
   }
 
-  listEl.innerHTML = "";
+  if (listEl) listEl.innerHTML = "";
+  if (listArchivedEl) listArchivedEl.innerHTML = "";
+
   if (!data || data.length === 0) {
-    listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
+    if (listEl) listEl.innerHTML = "<small>Geen zendingen.</small>";
     return;
   }
 
-  for (const s of data) listEl.appendChild(renderShipmentCard(s));
+  // Split op archief (op basis van archived_at)
+  const active = [];
+  const archived = [];
+
+  for (const s of data) {
+    if (s.archived_at) archived.push(s);
+    else active.push(s);
+  }
+
+  if (active.length === 0 && listEl) {
+    listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
+  } else {
+    for (const s of active) listEl.appendChild(renderShipmentCard(s));
+  }
+
+  if (listArchivedEl) {
+    if (archived.length === 0) {
+      listArchivedEl.innerHTML = "<small>Geen gearchiveerde zendingen.</small>";
+    } else {
+      for (const s of archived) listArchivedEl.appendChild(renderShipmentCard(s));
+    }
+  }
 }
 
 async function updateStatus(shipment, newStatus, extra = {}) {
@@ -194,10 +243,11 @@ async function updateStatus(shipment, newStatus, extra = {}) {
 
   const supabaseClient = await ensureClient();
 
-  const { error } = await supabaseClient
-    .from("shipments")
-    .delete()
-    .eq("id", shipment.id);
+ const { error } = await supabaseClient
+  .from("shipments")
+  .delete()
+  .eq("id", shipment.id)
+  .eq("driver_id", currentUserId);
 
   if (error) {
     alert("Verwijderen mislukt: " + error.message);
@@ -388,6 +438,14 @@ if (!s.archived_at) {
         // UI terug goed zetten
         await loadShipments(currentUserId);
       }
+    })
+  );
+}
+
+  if (!s.archived_at && s.status === "AFGELEVERD") {
+  actions.append(
+    button("Archiveer", async () => {
+      await updateStatus(s, "GEARCHIVEERD");
     })
   );
 }
