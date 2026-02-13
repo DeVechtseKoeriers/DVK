@@ -343,7 +343,7 @@ function renderShipmentCard(s) {
 
   // Alleen wijzigen als NIET gearchiveerd (beste check: archived_at is leeg)
 if (!s.archived_at) {
-  actions.appendChild(button("Wijzigen", () => openEditMode(div, s)));
+  actions.append(button("Wijzigen", () => openEditMode(div, s)));
 }
 
 actions.append(
