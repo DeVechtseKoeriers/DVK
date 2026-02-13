@@ -543,3 +543,27 @@ async function createShipment(user) {
     .on("postgres_changes", { event: "*", schema: "public", table: "shipments" }, () => loadShipments(user.id))
     .subscribe();
 })();
+
+  // ===============================
+// DELETE SHIPMENT
+// ===============================
+async function deleteShipment(shipment) {
+  if (!confirm("Weet je zeker dat je deze zending wilt verwijderen?")) {
+    return;
+  }
+
+  const supabaseClient = await ensureClient();
+
+  const { error } = await supabaseClient
+    .from("shipments")
+    .delete()
+    .eq("id", shipment.id);
+
+  if (error) {
+    alert("Verwijderen mislukt: " + error.message);
+    return;
+  }
+
+  await loadShipments(currentUserId);
+}
+})();
