@@ -436,16 +436,27 @@ if (editOther && shipment.shipment_type_other) {
   document.getElementById("saveEdit").onclick = async () => {
     const supabaseClient = await ensureClient();
 
-    await supabaseClient
-      .from("shipments")
-      .update({
-        customer_name: document.getElementById("editCustomer").value,
-        pickup_address: document.getElementById("editPickup").value,
-        delivery_address: document.getElementById("editDelivery").value,
-        colli_count: parseInt(document.getElementById("editColli").value)
-      })
-      .eq("id", shipment.id);
+    const selectedType = form.querySelector("#editType")?.value || "doos";
+const otherValue = form.querySelector("#editOther")?.value || "").trim() || null;
 
+const updatePayload = {
+  customer_name: form.querySelector("#editCustomer")?.value || "",
+  pickup_address: form.querySelector("#editPickup")?.value || "",
+  delivery_address: form.querySelector("#editDelivery")?.value || "",
+  shipment_type: selectedType,
+  shipment_type_other: selectedType === "overig" ? otherValue : null,
+  colli_count: parseInt(form.querySelector("#editColli")?.value || "1",10)
+};
+
+const { error } = await supabaseClient
+  .from("shipments")
+  .update(updatePayload)
+  .eq("id", shipment.id);
+
+if (error) {
+  alert("Fout bij opslaan: " + error.message);
+  return;
+}
     loadShipments(currentUserId);
   };
 }
