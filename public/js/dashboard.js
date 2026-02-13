@@ -368,7 +368,28 @@ if (!s.archived_at) {
 }
   
 if (!s.archived_at) {
-  actions.append(button("Verwijderen", () => deleteShipment(s)));
+  actions.append(
+    button("Verwijderen", async () => {
+      const ok = confirm("Weet je zeker dat je deze zending wilt verwijderen?");
+      if (!ok) return;
+
+      // ✅ direct uit UI halen
+      div.remove();
+
+      // ✅ daarna pas echt verwijderen in Supabase
+      const supabaseClient = await ensureClient();
+      const { error } = await supabaseClient
+        .from("shipments")
+        .delete()
+        .eq("id", s.id);
+
+      if (error) {
+        alert("Verwijderen mislukt: " + error.message);
+        // UI terug goed zetten
+        await loadShipments(currentUserId);
+      }
+    })
+  );
 }
   
 actions.append(
