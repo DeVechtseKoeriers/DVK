@@ -1,10 +1,11 @@
-// DVK Dashboard (Delivered modal version)
+// DVK Dashboard - delivered modal + signature + photo upload
 
 const listEl = document.getElementById("list");
 const createMsg = document.getElementById("createMsg");
 const typeEl = document.getElementById("shipment_type");
 const otherWrap = document.getElementById("otherWrap");
 
+// modal elements
 const overlay = document.getElementById("modalOverlay");
 const modalShipmentInfo = document.getElementById("modalShipmentInfo");
 const modalReceiver = document.getElementById("modalReceiver");
@@ -13,11 +14,19 @@ const modalError = document.getElementById("modalError");
 const modalCancel = document.getElementById("modalCancel");
 const modalConfirm = document.getElementById("modalConfirm");
 
-let currentDeliveryShipment = null;
+// signature
+const sigCanvas = document.getElementById("sigCanvas");
+const sigClear = document.getElementById("sigClear");
 
-function msg(text) {
-  if (createMsg) createMsg.textContent = text || "";
-}
+// photos
+const photo1 = document.getElementById("photo1");
+const photo2 = document.getElementById("photo2");
+
+let currentDeliveryShipment = null;
+let currentUserId = null;
+
+// ---------------- helpers
+function msg(t) { if (createMsg) createMsg.textContent = t || ""; }
 
 function escapeHtml(str) {
   return String(str ?? "")
@@ -41,13 +50,7 @@ async function requireAuth() {
   return data.session.user;
 }
 
-if (typeEl && otherWrap) {
-  typeEl.addEventListener("change", () => {
-    otherWrap.style.display = (typeEl.value === "overig") ? "block" : "none";
-  });
-}
-
-// Logout
+// ---------------- logout
 const logoutBtn = document.getElementById("btnLogout");
 if (logoutBtn) {
   logoutBtn.addEventListener("click", async () => {
@@ -57,6 +60,85 @@ if (logoutBtn) {
   });
 }
 
+// ---------------- type switch
+if (typeEl && otherWrap) {
+  typeEl.addEventListener("change", () => {
+    otherWrap.style.display = (typeEl.value === "overig") ? "block" : "none";
+  });
+}
+
+// ---------------- signature pad (Pointer Events, Safari proof)
+let drawing = false;
+let hasSignature = false;
+let last = null;
+
+function setupCanvasForDPR() {
+  if (!sigCanvas) return;
+  const rect = sigCanvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+
+  sigCanvas.width = Math.round(rect.width * dpr);
+  sigCanvas.height = Math.round(rect.height * dpr);
+
+  const ctx = sigCanvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#111";
+}
+
+function getPoint(e) {
+  const rect = sigCanvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function sigReset() {
+  if (!sigCanvas) return;
+  const ctx = sigCanvas.getContext("2d");
+  ctx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+  hasSignature = false;
+  last = null;
+}
+
+function onPointerDown(e) {
+  drawing = true;
+  sigCanvas.setPointerCapture(e.pointerId);
+  last = getPoint(e);
+  e.preventDefault();
+}
+
+function onPointerMove(e) {
+  if (!drawing || !last) return;
+  const ctx = sigCanvas.getContext("2d");
+  const p = getPoint(e);
+
+  ctx.beginPath();
+  ctx.moveTo(last.x, last.y);
+  ctx.lineTo(p.x, p.y);
+  ctx.stroke();
+
+  last = p;
+  hasSignature = true;
+  e.preventDefault();
+}
+
+function onPointerUp(e) {
+  drawing = false;
+  last = null;
+  e.preventDefault();
+}
+
+if (sigCanvas) {
+  sigCanvas.style.touchAction = "none";
+  sigCanvas.addEventListener("pointerdown", onPointerDown);
+  sigCanvas.addEventListener("pointermove", onPointerMove);
+  sigCanvas.addEventListener("pointerup", onPointerUp);
+  sigCanvas.addEventListener("pointercancel", onPointerUp);
+}
+
+if (sigClear) sigClear.addEventListener("click", sigReset);
+
+// ---------------- events timeline
 async function addEvent(shipmentId, eventType, note = null) {
   const supabaseClient = await ensureClient();
   const { error } = await supabaseClient
@@ -65,10 +147,9 @@ async function addEvent(shipmentId, eventType, note = null) {
   if (error) console.error("event insert error:", error);
 }
 
+// ---------------- list + update
 async function loadShipments(driverId) {
   const supabaseClient = await ensureClient();
-  if (!listEl) return;
-
   listEl.innerHTML = "Laden...";
 
   const { data, error } = await supabaseClient
@@ -89,19 +170,15 @@ async function loadShipments(driverId) {
     return;
   }
 
-  for (const s of data) {
-    listEl.appendChild(renderShipmentCard(s));
-  }
+  for (const s of data) listEl.appendChild(renderShipmentCard(s));
 }
 
 async function updateStatus(shipment, newStatus, extra = {}) {
   const supabaseClient = await ensureClient();
 
-  const patch = { status: newStatus, ...extra };
-
   const { error } = await supabaseClient
     .from("shipments")
-    .update(patch)
+    .update({ status: newStatus, ...extra })
     .eq("id", shipment.id);
 
   if (error) {
@@ -109,9 +186,7 @@ async function updateStatus(shipment, newStatus, extra = {}) {
     return;
   }
 
-  const eventNote =
-    extra.problem_note || extra.delivered_note || extra.archive_note || null;
-
+  const eventNote = extra.problem_note || extra.delivered_note || extra.archive_note || null;
   await addEvent(shipment.id, newStatus, eventNote);
   await loadShipments(shipment.driver_id);
 }
@@ -123,17 +198,19 @@ function button(text, onClick) {
   return b;
 }
 
+// ---------------- modal open/close
 function openDeliveredModal(shipment) {
   currentDeliveryShipment = shipment;
 
   modalError.textContent = "";
   modalReceiver.value = "";
   modalNote.value = "";
+  photo1.value = "";
+  photo2.value = "";
 
-  const typeText =
-    (shipment.shipment_type === "overig")
-      ? (shipment.shipment_type_other || "overig")
-      : shipment.shipment_type;
+  const typeText = shipment.shipment_type === "overig"
+    ? (shipment.shipment_type_other || "overig")
+    : shipment.shipment_type;
 
   modalShipmentInfo.innerHTML = `
     <b>${escapeHtml(shipment.track_code)}</b><br/>
@@ -142,7 +219,13 @@ function openDeliveredModal(shipment) {
   `;
 
   overlay.style.display = "flex";
-  setTimeout(() => modalReceiver.focus(), 50);
+
+  // canvas pas correct schalen als modal zichtbaar is
+  setTimeout(() => {
+    setupCanvasForDPR();
+    sigReset();
+    modalReceiver.focus();
+  }, 60);
 }
 
 function closeDeliveredModal() {
@@ -155,6 +238,21 @@ overlay.addEventListener("click", (e) => {
   if (e.target === overlay) closeDeliveredModal();
 });
 
+// ---------------- upload helpers
+async function uploadFile(bucket, path, fileOrBlob, contentType) {
+  const supabaseClient = await ensureClient();
+  const { error } = await supabaseClient.storage
+    .from(bucket)
+    .upload(path, fileOrBlob, { upsert: true, contentType });
+
+  if (error) throw error;
+  return path;
+}
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1.0));
+}
+
 modalConfirm.addEventListener("click", async () => {
   if (!currentDeliveryShipment) return;
 
@@ -166,21 +264,58 @@ modalConfirm.addEventListener("click", async () => {
     modalReceiver.focus();
     return;
   }
+  if (!hasSignature) {
+    modalError.textContent = "Handtekening is verplicht.";
+    return;
+  }
 
   modalConfirm.disabled = true;
-  modalError.textContent = "";
+  modalError.textContent = "Uploaden...";
 
   try {
+    const bucket = "dvk-delivery";
+    const track = currentDeliveryShipment.track_code;
+    const base = `${currentUserId}/${track}`;
+
+    // signature
+    const sigBlob = await canvasToBlob(sigCanvas);
+    const sigPath = `${base}/signature.png`;
+    await uploadFile(bucket, sigPath, sigBlob, "image/png");
+
+    // photos optional
+    let p1 = null, p2 = null;
+
+    if (photo1.files && photo1.files[0]) {
+      const f = photo1.files[0];
+      p1 = `${base}/photo1-${Date.now()}`;
+      await uploadFile(bucket, p1, f, f.type || "image/jpeg");
+    }
+    if (photo2.files && photo2.files[0]) {
+      const f = photo2.files[0];
+      p2 = `${base}/photo2-${Date.now()}`;
+      await uploadFile(bucket, p2, f, f.type || "image/jpeg");
+    }
+
+    modalError.textContent = "Opslaan...";
+
     await updateStatus(currentDeliveryShipment, "AFGELEVERD", {
       receiver_name: receiver,
-      delivered_note: note
+      delivered_note: note,
+      signature_path: sigPath,
+      photo1_path: p1,
+      photo2_path: p2
     });
+
     closeDeliveredModal();
+  } catch (err) {
+    console.error(err);
+    modalError.textContent = "Fout: " + (err?.message || err);
   } finally {
     modalConfirm.disabled = false;
   }
 });
 
+// ---------------- card render
 function renderShipmentCard(s) {
   const div = document.createElement("div");
   div.className = "shipment";
@@ -214,22 +349,18 @@ function renderShipmentCard(s) {
       if (!note) return;
       await updateStatus(s, "PROBLEEM", { problem_note: note });
     }),
-    button("Afgeleverd", () => openDeliveredModal(s)),
-    button("Archiveren", async () => {
-      const note = prompt("Archief notitie (optioneel):") || null;
-      await updateStatus(s, "GEARCHIVEERD", {
-        archived_at: new Date().toISOString(),
-        archive_note: note
-      });
-    })
+    button("Afgeleverd", () => openDeliveredModal(s))
   );
 
   if (s.problem_note) sub.innerHTML = `<small><b>Probleem:</b> ${escapeHtml(s.problem_note)}</small>`;
   if (s.receiver_name) sub.innerHTML += `<br/><small><b>Ontvanger:</b> ${escapeHtml(s.receiver_name)}</small>`;
+  if (s.signature_path) sub.innerHTML += `<br/><small><b>Handtekening:</b> opgeslagen ✅</small>`;
+  if (s.photo1_path || s.photo2_path) sub.innerHTML += `<br/><small><b>Foto’s:</b> opgeslagen ✅</small>`;
 
   return div;
 }
 
+// ---------------- create shipment
 async function createShipment(user) {
   const supabaseClient = await ensureClient();
   msg("Bezig...");
@@ -250,19 +381,17 @@ async function createShipment(user) {
     return;
   }
 
-  const payload = {
-    driver_id: user.id,
-    customer_name,
-    pickup_address,
-    delivery_address,
-    shipment_type,
-    shipment_type_other,
-    colli_count
-  };
-
   const { data, error } = await supabaseClient
     .from("shipments")
-    .insert(payload)
+    .insert({
+      driver_id: user.id,
+      customer_name,
+      pickup_address,
+      delivery_address,
+      shipment_type,
+      shipment_type_other,
+      colli_count
+    })
     .select("*")
     .single();
 
@@ -275,15 +404,14 @@ async function createShipment(user) {
   await loadShipments(user.id);
 }
 
+// ---------------- init
 (async () => {
   const user = await requireAuth();
+  currentUserId = user.id;
 
-  const btnCreate = document.getElementById("btnCreate");
-  if (btnCreate) btnCreate.addEventListener("click", () => createShipment(user));
-
+  document.getElementById("btnCreate").addEventListener("click", () => createShipment(user));
   await loadShipments(user.id);
 
-  // realtime refresh (optioneel)
   const supabaseClient = await ensureClient();
   supabaseClient
     .channel("shipments_changes")
