@@ -566,4 +566,3 @@ async function deleteShipment(shipment) {
 
   await loadShipments(currentUserId);
 }
-})();
