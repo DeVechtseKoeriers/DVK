@@ -1,3 +1,5 @@
+// DVK Dashboard (clean version)
+
 const listEl = document.getElementById("list");
 const createMsg = document.getElementById("createMsg");
 const whoEl = document.getElementById("who");
@@ -6,14 +8,14 @@ const typeEl = document.getElementById("shipment_type");
 const otherWrap = document.getElementById("otherWrap");
 
 function msg(text) {
-  createMsg.textContent = text || "";
+  if (createMsg) createMsg.textContent = text || "";
 }
 
 function escapeHtml(str) {
   return String(str ?? "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 async function ensureClient() {
@@ -23,24 +25,6 @@ async function ensureClient() {
   }
   return window.supabaseClient;
 }
-
-typeEl.addEventListener("change", () => {
-  otherWrap.style.display = (typeEl.value === "overig") ? "block" : "none";
-});
-
-const logoutBtn = document.getElementById("btnLogout");
-if (logoutBtn) {
-  logoutBtn.addEventListener("click", async () => {
-    const supabaseClient = await ensureClient();
-    await supabaseClient.auth.signOut();
-    window.location.href = "/DVK/driver/login.html";
-  });
-}
-
-  const supabaseClient = await ensureClient();
-  await supabaseClient.auth.signOut();
-  window.location.href = "/DVK/driver/login.html";
-});
 
 async function requireAuth() {
   const supabaseClient = await ensureClient();
@@ -52,8 +36,37 @@ async function requireAuth() {
   return data.session.user;
 }
 
+if (typeEl && otherWrap) {
+  typeEl.addEventListener("change", () => {
+    otherWrap.style.display = (typeEl.value === "overig") ? "block" : "none";
+  });
+}
+
+// Logout (veilig)
+(async () => {
+  const logoutBtn = document.getElementById("btnLogout");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      const supabaseClient = await ensureClient();
+      await supabaseClient.auth.signOut();
+      window.location.href = "/DVK/driver/login.html";
+    });
+  }
+})();
+
+async function addEvent(shipmentId, eventType, note = null) {
+  const supabaseClient = await ensureClient();
+  const { error } = await supabaseClient
+    .from("shipment_events")
+    .insert({ shipment_id: shipmentId, event_type: eventType, note });
+
+  if (error) console.error("event insert error:", error);
+}
+
 async function loadShipments(driverId) {
   const supabaseClient = await ensureClient();
+  if (!listEl) return;
+
   listEl.innerHTML = "Laden...";
 
   const { data, error } = await supabaseClient
@@ -74,30 +87,20 @@ async function loadShipments(driverId) {
     return;
   }
 
-  data.forEach(s => listEl.appendChild(renderShipmentCard(s)));
-}
-
-async function addEvent(shipmentId, eventType, note = null) {
-  const supabaseClient = await ensureClient();
-  const { error } = await supabaseClient
-    .from("shipment_events")
-    .insert({ shipment_id: shipmentId, event_type: eventType, note });
-
-  if (error) console.error("event insert error:", error);
+  for (const s of data) {
+    listEl.appendChild(renderShipmentCard(s));
+  }
 }
 
 async function updateStatus(shipment, newStatus, extra = {}) {
-  if (shipment.status === "GEARCHIVEERD") return;
-
   const supabaseClient = await ensureClient();
+
   const patch = { status: newStatus, ...extra };
 
-  const { data, error } = await supabaseClient
+  const { error } = await supabaseClient
     .from("shipments")
     .update(patch)
-    .eq("id", shipment.id)
-    .select("*")
-    .single();
+    .eq("id", shipment.id);
 
   if (error) {
     alert("Update fout: " + error.message);
@@ -108,7 +111,6 @@ async function updateStatus(shipment, newStatus, extra = {}) {
   await addEvent(shipment.id, newStatus, eventNote);
 
   await loadShipments(shipment.driver_id);
-  return data;
 }
 
 function button(text, onClick) {
@@ -122,7 +124,10 @@ function renderShipmentCard(s) {
   const div = document.createElement("div");
   div.className = "shipment";
 
-  const typeText = (s.shipment_type === "overig") ? (s.shipment_type_other || "overig") : s.shipment_type;
+  const typeText =
+    (s.shipment_type === "overig")
+      ? (s.shipment_type_other || "overig")
+      : s.shipment_type;
 
   const trackLink = `/DVK/track/?code=${encodeURIComponent(s.track_code)}`;
 
@@ -173,25 +178,31 @@ async function createShipment(user) {
   const supabaseClient = await ensureClient();
   msg("Bezig...");
 
-  const payload = {
-    driver_id: user.id,
-    customer_name: document.getElementById("customer_name").value.trim(),
-    pickup_address: document.getElementById("pickup_address").value.trim(),
-    delivery_address: document.getElementById("delivery_address").value.trim(),
-    shipment_type: typeEl.value,
-    shipment_type_other: (document.getElementById("shipment_type_other").value.trim() || null),
-    colli_count: parseInt(document.getElementById("colli_count").value || "1", 10)
-    // track_code NIET meesturen -> trigger vult hem
-  };
+  const customer_name = document.getElementById("customer_name")?.value.trim() || "";
+  const pickup_address = document.getElementById("pickup_address")?.value.trim() || "";
+  const delivery_address = document.getElementById("delivery_address")?.value.trim() || "";
+  const shipment_type = document.getElementById("shipment_type")?.value || "doos";
+  const shipment_type_other = document.getElementById("shipment_type_other")?.value.trim() || null;
+  const colli_count = parseInt(document.getElementById("colli_count")?.value || "1", 10);
 
-  if (!payload.customer_name || !payload.pickup_address || !payload.delivery_address) {
+  if (!customer_name || !pickup_address || !delivery_address) {
     msg("Vul klantnaam + ophaaladres + bezorgadres in.");
     return;
   }
-  if (payload.shipment_type === "overig" && !payload.shipment_type_other) {
+  if (shipment_type === "overig" && !shipment_type_other) {
     msg("Vul 'overig' type in.");
     return;
   }
+
+  const payload = {
+    driver_id: user.id,
+    customer_name,
+    pickup_address,
+    delivery_address,
+    shipment_type,
+    shipment_type_other,
+    colli_count
+  };
 
   const { data, error } = await supabaseClient
     .from("shipments")
@@ -210,12 +221,14 @@ async function createShipment(user) {
 
 (async () => {
   const user = await requireAuth();
-  whoEl.textContent = user.email || "";
+  if (whoEl) whoEl.textContent = user.email || "";
 
-  document.getElementById("btnCreate").addEventListener("click", () => createShipment(user));
+  const btnCreate = document.getElementById("btnCreate");
+  if (btnCreate) btnCreate.addEventListener("click", () => createShipment(user));
+
   await loadShipments(user.id);
 
-  // realtime updates (optioneel, maar prettig)
+  // realtime refresh (optioneel)
   const supabaseClient = await ensureClient();
   supabaseClient
     .channel("shipments_changes")
