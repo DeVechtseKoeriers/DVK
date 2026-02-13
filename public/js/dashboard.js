@@ -341,16 +341,23 @@ function renderShipmentCard(s) {
   const actions = div.querySelector(".actions");
   const sub = div.querySelector(".sub");
 
+  // Alleen wijzigen als niet gearchiveerd
+if (s.status !== "GEARCHIVEERD") {
   actions.append(
-    button("Opgehaald", () => updateStatus(s, "OPGEHAALD")),
-    button("Onderweg", () => updateStatus(s, "ONDERWEG")),
-    button("Probleem", async () => {
-      const note = prompt("Wat is het probleem?");
-      if (!note) return;
-      await updateStatus(s, "PROBLEEM", { problem_note: note });
-    }),
-    button("Afgeleverd", () => openDeliveredModal(s))
+    button("Wijzigen", () => openEditMode(div, s))
   );
+}
+
+actions.append(
+  button("Opgehaald", () => updateStatus(s, "OPGEHAALD")),
+  button("Onderweg", () => updateStatus(s, "ONDERWEG")),
+  button("Probleem", async () => {
+    const note = prompt("Wat is het probleem?");
+    if (!note) return;
+    await updateStatus(s, "PROBLEEM", { problem_note: note });
+  }),
+  button("Afgeleverd", () => openDeliveredModal(s))
+);
 
   if (s.problem_note) sub.innerHTML = `<small><b>Probleem:</b> ${escapeHtml(s.problem_note)}</small>`;
   if (s.receiver_name) sub.innerHTML += `<br/><small><b>Ontvanger:</b> ${escapeHtml(s.receiver_name)}</small>`;
@@ -358,6 +365,43 @@ function renderShipmentCard(s) {
   if (s.photo1_path || s.photo2_path) sub.innerHTML += `<br/><small><b>Foto’s:</b> opgeslagen ✅</small>`;
 
   return div;
+}
+
+// ===============================
+// EDIT MODE
+// ===============================
+
+function openEditMode(cardDiv, shipment) {
+  const form = document.createElement("div");
+  form.innerHTML = `
+    <input id="editCustomer" value="${shipment.customer_name}" />
+    <input id="editPickup" value="${shipment.pickup_address}" />
+    <input id="editDelivery" value="${shipment.delivery_address}" />
+    <input id="editColli" type="number" value="${shipment.colli_count}" />
+    <button id="saveEdit">Opslaan</button>
+    <button id="cancelEdit">Annuleren</button>
+  `;
+  cardDiv.appendChild(form);
+
+  document.getElementById("cancelEdit").onclick = () => {
+    loadShipments(currentUserId);
+  };
+
+  document.getElementById("saveEdit").onclick = async () => {
+    const supabaseClient = await ensureClient();
+
+    await supabaseClient
+      .from("shipments")
+      .update({
+        customer_name: document.getElementById("editCustomer").value,
+        pickup_address: document.getElementById("editPickup").value,
+        delivery_address: document.getElementById("editDelivery").value,
+        colli_count: parseInt(document.getElementById("editColli").value)
+      })
+      .eq("id", shipment.id);
+
+    loadShipments(currentUserId);
+  };
 }
 
 // ---------------- create shipment
