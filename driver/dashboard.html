@@ -1,55 +1,100 @@
-<div class="topbar">
-  <h1>Zending aanmaken</h1>
-  <button id="btnLogout">Uitloggen</button>
-</div>
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DVK Chauffeur Dashboard</title>
+  <link rel="stylesheet" href="/DVK/public/css/app.css?v=3" />
+</head>
+<body>
+  <div class="topbar">
+    <h1>Zending aanmaken</h1>
+    <button id="btnLogout">Uitloggen</button>
+  </div>
 
-<div class="grid">
-    <div class="card">
-      <h2>Zending aanmaken</h2>
+  <div class="card">
+    <h2>Nieuwe zending</h2>
 
-      <label>Klantnaam</label>
-      <input id="customer_name" placeholder="Bijv. SDX / klantnaam" />
+    <div class="row">
+      <div>
+        <label>Klantnaam</label><br/>
+        <input id="customer_name" placeholder="Bijv. SDX / klantnaam" />
+      </div>
 
-      <label>Ophaaladres</label>
-      <input id="pickup_address" placeholder="Straat, huisnr, plaats" />
+      <div>
+        <label>Ophaaladres</label><br/>
+        <input id="pickup_address" placeholder="Straat, huisnr, plaats" />
+      </div>
 
-      <label>Bezorgadres</label>
-      <input id="delivery_address" placeholder="Straat, huisnr, plaats" />
+      <div>
+        <label>Bezorgadres</label><br/>
+        <input id="delivery_address" placeholder="Straat, huisnr, plaats" />
+      </div>
+    </div>
 
-      <label>Type zending</label>
-      <select id="shipment_type">
-        <option value="doos">Doos</option>
-        <option value="enveloppe">Enveloppe</option>
-        <option value="pallet">Pallet</option>
-        <option value="overig">Overig</option>
-      </select>
+    <div class="row">
+      <div>
+        <label>Type zending</label><br/>
+        <select id="shipment_type">
+          <option value="doos">Doos</option>
+          <option value="enveloppe">Enveloppe</option>
+          <option value="pallet">Pallet</option>
+          <option value="overig">Overig</option>
+        </select>
+      </div>
 
       <div id="otherWrap" style="display:none">
-        <label>Overig (invullen)</label>
+        <label>Overig (invullen)</label><br/>
         <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
       </div>
 
-      <label>Aantal colli</label>
-      <input id="colli_count" type="number" min="1" value="1" />
+      <div>
+        <label>Aantal colli</label><br/>
+        <input id="colli_count" type="number" min="1" value="1" />
+      </div>
 
-      <button id="btnCreate">Aanmaken</button>
-      <p id="createMsg"></p>
-
-      <hr/>
-      <small>
-        Track & Trace link wordt automatisch: <br/>
-        <code>https://devechtsekoeriers.github.io/DVK/track/?code=DVK2026....</code>
-      </small>
+      <div style="align-self:flex-end">
+        <button id="btnCreate">Aanmaken</button>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>Actieve zendingen</h2>
-      <div id="list"></div>
+    <p id="createMsg" class="small"></p>
+
+    <small class="small">
+      Track & Trace link wordt automatisch: <br/>
+      <code>https://devechtsekoeriers.github.io/DVK/track/?code=DVK2026....</code>
+    </small>
+  </div>
+
+  <div class="card">
+    <h2>Actieve zendingen</h2>
+    <div id="list"></div>
+  </div>
+
+  <!-- Modal: Afgeleverd -->
+  <div id="modalOverlay" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <h2>Aflevering bevestigen</h2>
+
+      <p class="small" id="modalShipmentInfo"></p>
+
+      <label>Naam ontvanger (verplicht)</label>
+      <input id="modalReceiver" placeholder="Naam + evt. bedrijf" />
+
+      <label>Opmerking (optioneel)</label>
+      <input id="modalNote" placeholder="Bijv. afgeleverd bij receptie" />
+
+      <p id="modalError" class="small" style="color:#b00020;"></p>
+
+      <div class="row" style="justify-content:flex-end;">
+        <button id="modalCancel">Annuleren</button>
+        <button id="modalConfirm">Bevestig aflevering</button>
+      </div>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="/DVK/public/js/supabase-config.js?v=2"></script>
-  <script src="/DVK/public/js/dashboard.js?v=2"></script>
+  <script src="/DVK/public/js/supabase-config.js?v=3"></script>
+  <script src="/DVK/public/js/dashboard.js?v=3"></script>
 </body>
 </html>
