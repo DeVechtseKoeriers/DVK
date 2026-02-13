@@ -186,6 +186,27 @@ async function updateStatus(shipment, newStatus, extra = {}) {
     return;
   }
 
+  async function deleteShipment(shipment) {
+  const ok = confirm(
+    `Weet je zeker dat je zending ${shipment.track_code} wilt verwijderen?\n\nDit kan niet ongedaan gemaakt worden.`
+  );
+  if (!ok) return;
+
+  const supabaseClient = await ensureClient();
+
+  const { error } = await supabaseClient
+    .from("shipments")
+    .delete()
+    .eq("id", shipment.id);
+
+  if (error) {
+    alert("Verwijderen mislukt: " + error.message);
+    return;
+  }
+
+  await loadShipments(currentUserId);
+}
+  
   const eventNote = extra.problem_note || extra.delivered_note || extra.archive_note || null;
   await addEvent(shipment.id, newStatus, eventNote);
   await loadShipments(shipment.driver_id);
@@ -345,7 +366,11 @@ function renderShipmentCard(s) {
 if (!s.archived_at) {
   actions.append(button("Wijzigen", () => openEditMode(div, s)));
 }
-
+  
+if (!s.archived_at) {
+  actions.append(button("Verwijderen", () => deleteShipment(s)));
+}
+  
 actions.append(
   button("Opgehaald", () => updateStatus(s, "OPGEHAALD")),
   button("Onderweg", () => updateStatus(s, "ONDERWEG")),
