@@ -625,35 +625,26 @@ async function createShipment(user) {
   const user = await requireAuth();
   currentUserId = user.id;
 
-  document.getElementById("btnCreate").addEventListener("click", () => createShipment(user));
-  await loadShipments(user.id);
+  // Create knop
+  const btn = document.getElementById("btnCreate");
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      // 👇 gebruik hier jouw bestaande create-functie of code
+      await createShipment(); // <-- als jouw functie anders heet: pas deze naam aan
+    });
+  }
 
+  // eerste laad
+  await loadShipments(currentUserId);
+
+  // realtime refresh
   const supabaseClient = await ensureClient();
   supabaseClient
     .channel("shipments_changes")
-    .on("postgres_changes", { event: "*", schema: "public", table: "shipments" }, () => loadShipments(user.id))
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "shipments" },
+      () => loadShipments(currentUserId)
+    )
     .subscribe();
 })();
-
-  // ===============================
-// DELETE SHIPMENT
-// ===============================
-async function deleteShipment(shipment) {
-  if (!confirm("Weet je zeker dat je deze zending wilt verwijderen?")) {
-    return;
-  }
-
-  const supabaseClient = await ensureClient();
-
-  const { error } = await supabaseClient
-    .from("shipments")
-    .delete()
-    .eq("id", shipment.id);
-
-  if (error) {
-    alert("Verwijderen mislukt: " + error.message);
-    return;
-  }
-
-  await loadShipments(currentUserId);
-}
