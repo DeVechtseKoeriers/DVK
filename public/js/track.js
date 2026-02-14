@@ -79,6 +79,17 @@ if (sh.status === "AFGELEVERD") {
   receiverEl.textContent = sh.receiver_name || "-";
   noteEl.textContent = sh.delivered_note || "-";
 
+  // ---------------- Afleverbon melding tonen
+const afterCard = document.getElementById("afterDeliveryCard");
+
+if (afterCard) {
+  if (sh.status === "AFGELEVERD" || sh.status === "GEARCHIVEERD") {
+    afterCard.style.display = "block";
+  } else {
+    afterCard.style.display = "none";
+  }
+}
+
   function renderShipment(sh) {
   resultEl.style.display = "block";
   trackcodeEl.textContent = sh.track_code || "";
