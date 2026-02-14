@@ -647,4 +647,4 @@ async function createShipment(user) {
       () => loadShipments(currentUserId)
     )
     .subscribe();
-})();
+})(); //
