@@ -5,15 +5,12 @@ const listArchivedEl = document.getElementById("listArchived");
 const tabActive = document.getElementById("tabActive");
 const tabArchived = document.getElementById("tabArchived");
 
-if (tabActive) {
-  tabActive.addEventListener("click", () => setTab("active"));
-}
-
-if (tabArchived) {
-  tabArchived.addEventListener("click", () => setTab("archived"));
-}
-
 let currentTab = "active";
+let currentDeliveryShipment = null;
+let currentUserId = null;
+
+if (tabActive) tabActive.addEventListener("click", () => setTab("active"));
+if (tabArchived) tabArchived.addEventListener("click", () => setTab("archived"));
 
 function setTab(tab) {
   currentTab = tab;
@@ -25,11 +22,13 @@ function setTab(tab) {
   if (tabActive) tabActive.disabled = isActive;
   if (tabArchived) tabArchived.disabled = !isActive;
 }
+
+// ---------------- create form elements
 const createMsg = document.getElementById("createMsg");
 const typeEl = document.getElementById("shipment_type");
 const otherWrap = document.getElementById("otherWrap");
 
-// modal elements
+// ---------------- modal elements
 const overlay = document.getElementById("modalOverlay");
 const modalShipmentInfo = document.getElementById("modalShipmentInfo");
 const modalReceiver = document.getElementById("modalReceiver");
@@ -46,11 +45,10 @@ const sigClear = document.getElementById("sigClear");
 const photo1 = document.getElementById("photo1");
 const photo2 = document.getElementById("photo2");
 
-let currentDeliveryShipment = null;
-let currentUserId = null;
-
 // ---------------- helpers
-function msg(t) { if (createMsg) createMsg.textContent = t || ""; }
+function msg(t) {
+  if (createMsg) createMsg.textContent = t || "";
+}
 
 function escapeHtml(str) {
   return String(str ?? "")
@@ -87,7 +85,7 @@ if (logoutBtn) {
 // ---------------- type switch
 if (typeEl && otherWrap) {
   typeEl.addEventListener("change", () => {
-    otherWrap.style.display = (typeEl.value === "overig") ? "block" : "none";
+    otherWrap.style.display = typeEl.value === "overig" ? "block" : "none";
   });
 }
 
@@ -130,7 +128,6 @@ function onPointerDown(e) {
   last = getPoint(e);
   e.preventDefault();
 }
-
 function onPointerMove(e) {
   if (!drawing || !last) return;
   const ctx = sigCanvas.getContext("2d");
@@ -145,7 +142,6 @@ function onPointerMove(e) {
   hasSignature = true;
   e.preventDefault();
 }
-
 function onPointerUp(e) {
   drawing = false;
   last = null;
@@ -159,10 +155,9 @@ if (sigCanvas) {
   sigCanvas.addEventListener("pointerup", onPointerUp);
   sigCanvas.addEventListener("pointercancel", onPointerUp);
 }
-
 if (sigClear) sigClear.addEventListener("click", sigReset);
 
-// ---------------- events timeline
+// ---------------- events timeline (optioneel)
 async function addEvent(shipmentId, eventType, note = null) {
   const supabaseClient = await ensureClient();
   const { error } = await supabaseClient
@@ -171,11 +166,10 @@ async function addEvent(shipmentId, eventType, note = null) {
   if (error) console.error("event insert error:", error);
 }
 
-// ---------------- list + update
+// ---------------- list
 async function loadShipments(driverId) {
   const supabaseClient = await ensureClient();
 
-  // beide lijsten leegmaken (actief + archief)
   if (listEl) listEl.innerHTML = "Laden...";
   if (listArchivedEl) listArchivedEl.innerHTML = "";
 
@@ -198,44 +192,53 @@ async function loadShipments(driverId) {
     return;
   }
 
-  // Split op archief (op basis van archived_at)
   const active = [];
   const archived = [];
-
   for (const s of data) {
     if (s.archived_at) archived.push(s);
     else active.push(s);
   }
 
-  if (active.length === 0 && listEl) {
-    listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
-  } else {
-    for (const s of active) listEl.appendChild(renderShipmentCard(s));
+  if (listEl) {
+    if (active.length === 0) listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
+    else for (const s of active) listEl.appendChild(renderShipmentCard(s));
   }
 
   if (listArchivedEl) {
-    if (archived.length === 0) {
-      listArchivedEl.innerHTML = "<small>Geen gearchiveerde zendingen.</small>";
-    } else {
-      for (const s of archived) listArchivedEl.appendChild(renderShipmentCard(s));
-    }
+    if (archived.length === 0) listArchivedEl.innerHTML = "<small>Geen gearchiveerde zendingen.</small>";
+    else for (const s of archived) listArchivedEl.appendChild(renderShipmentCard(s));
   }
 }
 
+// ---------------- update status (FIXED: sluit netjes af)
 async function updateStatus(shipment, newStatus, extra = {}) {
   const supabaseClient = await ensureClient();
 
   const { error } = await supabaseClient
     .from("shipments")
     .update({ status: newStatus, ...extra })
-    .eq("id", shipment.id);
+    .eq("id", shipment.id)
+    .eq("driver_id", currentUserId);
 
   if (error) {
     alert("Update fout: " + error.message);
-    return;
+    return false;
   }
 
- async function deleteShipment(shipment) {
+  // optioneel eventlog
+  try {
+    const eventNote = extra.problem_note || extra.delivered_note || extra.archive_note || null;
+    await addEvent(shipment.id, newStatus, eventNote);
+  } catch (e) {
+    // niet blokkerend
+  }
+
+  await loadShipments(currentUserId);
+  return true;
+}
+
+// ---------------- definitief verwijderen (1 plek, geen dubbele delete functies)
+async function deleteShipment(shipment) {
   const ok = confirm(
     `Weet je zeker dat je zending ${shipment.track_code} wilt verwijderen?\n\nDit kan niet ongedaan gemaakt worden.`
   );
@@ -243,7 +246,7 @@ async function updateStatus(shipment, newStatus, extra = {}) {
 
   const supabaseClient = await ensureClient();
 
-  // Probeer echt te verwijderen + laat Supabase teruggeven wat er is verwijderd
+  // Laat Supabase teruggeven wat er verwijderd is
   const { data, error } = await supabaseClient
     .from("shipments")
     .delete()
@@ -256,9 +259,8 @@ async function updateStatus(shipment, newStatus, extra = {}) {
     return false;
   }
 
-  // Als data leeg is, is er NIETS verwijderd (meestal RLS / geen rechten / mismatch driver_id)
   if (!data || data.length === 0) {
-    alert("Niet verwijderd. Waarschijnlijk geen rechten (RLS) of driver_id klopt niet.");
+    alert("Niet verwijderd. Waarschijnlijk RLS/geen rechten of driver_id mismatch.");
     return false;
   }
 
@@ -283,9 +285,10 @@ function openDeliveredModal(shipment) {
   photo1.value = "";
   photo2.value = "";
 
-  const typeText = shipment.shipment_type === "overig"
-    ? (shipment.shipment_type_other || "overig")
-    : shipment.shipment_type;
+  const typeText =
+    shipment.shipment_type === "overig"
+      ? (shipment.shipment_type_other || "overig")
+      : shipment.shipment_type;
 
   modalShipmentInfo.innerHTML = `
     <b>${escapeHtml(shipment.track_code)}</b><br/>
@@ -295,7 +298,6 @@ function openDeliveredModal(shipment) {
 
   overlay.style.display = "flex";
 
-  // canvas pas correct schalen als modal zichtbaar is
   setTimeout(() => {
     setupCanvasForDPR();
     sigReset();
@@ -308,10 +310,12 @@ function closeDeliveredModal() {
   currentDeliveryShipment = null;
 }
 
-modalCancel.addEventListener("click", closeDeliveredModal);
-overlay.addEventListener("click", (e) => {
-  if (e.target === overlay) closeDeliveredModal();
-});
+if (modalCancel) modalCancel.addEventListener("click", closeDeliveredModal);
+if (overlay) {
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeDeliveredModal();
+  });
+}
 
 // ---------------- upload helpers
 async function uploadFile(bucket, path, fileOrBlob, contentType) {
@@ -323,72 +327,71 @@ async function uploadFile(bucket, path, fileOrBlob, contentType) {
   if (error) throw error;
   return path;
 }
-
 function canvasToBlob(canvas) {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1.0));
 }
 
-modalConfirm.addEventListener("click", async () => {
-  if (!currentDeliveryShipment) return;
+if (modalConfirm) {
+  modalConfirm.addEventListener("click", async () => {
+    if (!currentDeliveryShipment) return;
 
-  const receiver = modalReceiver.value.trim();
-  const note = modalNote.value.trim() || null;
+    const receiver = modalReceiver.value.trim();
+    const note = modalNote.value.trim() || null;
 
-  if (!receiver) {
-    modalError.textContent = "Naam ontvanger is verplicht.";
-    modalReceiver.focus();
-    return;
-  }
-  if (!hasSignature) {
-    modalError.textContent = "Handtekening is verplicht.";
-    return;
-  }
-
-  modalConfirm.disabled = true;
-  modalError.textContent = "Uploaden...";
-
-  try {
-    const bucket = "dvk-delivery";
-    const track = currentDeliveryShipment.track_code;
-    const base = `${currentUserId}/${track}`;
-
-    // signature
-    const sigBlob = await canvasToBlob(sigCanvas);
-    const sigPath = `${base}/signature.png`;
-    await uploadFile(bucket, sigPath, sigBlob, "image/png");
-
-    // photos optional
-    let p1 = null, p2 = null;
-
-    if (photo1.files && photo1.files[0]) {
-      const f = photo1.files[0];
-      p1 = `${base}/photo1-${Date.now()}`;
-      await uploadFile(bucket, p1, f, f.type || "image/jpeg");
+    if (!receiver) {
+      modalError.textContent = "Naam ontvanger is verplicht.";
+      modalReceiver.focus();
+      return;
     }
-    if (photo2.files && photo2.files[0]) {
-      const f = photo2.files[0];
-      p2 = `${base}/photo2-${Date.now()}`;
-      await uploadFile(bucket, p2, f, f.type || "image/jpeg");
+    if (!hasSignature) {
+      modalError.textContent = "Handtekening is verplicht.";
+      return;
     }
 
-    modalError.textContent = "Opslaan...";
+    modalConfirm.disabled = true;
+    modalError.textContent = "Uploaden...";
 
-    await updateStatus(currentDeliveryShipment, "AFGELEVERD", {
-      receiver_name: receiver,
-      delivered_note: note,
-      signature_path: sigPath,
-      photo1_path: p1,
-      photo2_path: p2
-    });
+    try {
+      const bucket = "dvk-delivery";
+      const track = currentDeliveryShipment.track_code;
+      const base = `${currentUserId}/${track}`;
 
-    closeDeliveredModal();
-  } catch (err) {
-    console.error(err);
-    modalError.textContent = "Fout: " + (err?.message || err);
-  } finally {
-    modalConfirm.disabled = false;
-  }
-});
+      const sigBlob = await canvasToBlob(sigCanvas);
+      const sigPath = `${base}/signature.png`;
+      await uploadFile(bucket, sigPath, sigBlob, "image/png");
+
+      let p1 = null, p2 = null;
+
+      if (photo1.files && photo1.files[0]) {
+        const f = photo1.files[0];
+        p1 = `${base}/photo1-${Date.now()}`;
+        await uploadFile(bucket, p1, f, f.type || "image/jpeg");
+      }
+      if (photo2.files && photo2.files[0]) {
+        const f = photo2.files[0];
+        p2 = `${base}/photo2-${Date.now()}`;
+        await uploadFile(bucket, p2, f, f.type || "image/jpeg");
+      }
+
+      modalError.textContent = "Opslaan...";
+
+      await updateStatus(currentDeliveryShipment, "AFGELEVERD", {
+        receiver_name: receiver,
+        delivered_note: note,
+        signature_path: sigPath,
+        photo1_path: p1,
+        photo2_path: p2
+      });
+
+      closeDeliveredModal();
+    } catch (err) {
+      console.error(err);
+      modalError.textContent = "Fout: " + (err?.message || err);
+    } finally {
+      modalConfirm.disabled = false;
+    }
+  });
+}
 
 // ---------------- card render
 function renderShipmentCard(s) {
@@ -396,7 +399,7 @@ function renderShipmentCard(s) {
   div.className = "shipment";
 
   const typeText =
-    (s.shipment_type === "overig")
+    s.shipment_type === "overig"
       ? (s.shipment_type_other || "overig")
       : s.shipment_type;
 
@@ -416,62 +419,36 @@ function renderShipmentCard(s) {
   const actions = div.querySelector(".actions");
   const sub = div.querySelector(".sub");
 
-  // Alleen wijzigen als NIET gearchiveerd (beste check: archived_at is leeg)
-if (!s.archived_at) {
-  actions.append(button("Wijzigen", () => openEditMode(div, s)));
-}
-  
-if (!s.archived_at) {
-  actions.append(
-    button("Verwijderen", async () => {
-      const ok = confirm("Weet je zeker dat je deze zending wilt verwijderen?");
-      if (!ok) return;
+  // Alleen acties als NIET gearchiveerd
+  if (!s.archived_at) {
+    actions.append(button("Wijzigen", () => openEditMode(div, s)));
+    actions.append(button("Verwijderen", async () => deleteShipment(s)));
 
-      // ✅ direct uit UI halen
-      div.remove();
+    if (s.status === "AFGELEVERD") {
+      actions.append(
+        button("Archiveer", async () => {
+          await updateStatus(s, "GEARCHIVEERD", {
+            archived_at: new Date().toISOString()
+          });
+          if (typeof setTab === "function") setTab("archived");
+        })
+      );
+    }
 
-      // ✅ daarna pas echt verwijderen in Supabase
-      const supabaseClient = await ensureClient();
-      const { error } = await supabaseClient
-        .from("shipments")
-        .delete()
-        .eq("id", s.id);
-
-      if (error) {
-        alert("Verwijderen mislukt: " + error.message);
-        // UI terug goed zetten
-        await loadShipments(currentUserId);
-      }
-    })
-  );
-}
-
-  if (!s.archived_at && s.status === "AFGELEVERD") {
-  actions.append(
-    button("Archiveer", async () => {
-      await updateStatus(s, "GEARCHIVEERD", {
-        archived_at: new Date().toISOString()
-      });
-
-      // ✅ direct UI verversen zodat hij naar Archief gaat
-      await loadShipments(currentUserId);
-
-      // ✅ optioneel: meteen naar Archief-tab
-      if (typeof setTab === "function") setTab("archived");
-    })
-  );
-}
-  
-actions.append(
-  button("Opgehaald", () => updateStatus(s, "OPGEHAALD")),
-  button("Onderweg", () => updateStatus(s, "ONDERWEG")),
-  button("Probleem", async () => {
-    const note = prompt("Wat is het probleem?");
-    if (!note) return;
-    await updateStatus(s, "PROBLEEM", { problem_note: note });
-  }),
-  button("Afgeleverd", () => openDeliveredModal(s))
-);
+    actions.append(
+      button("Opgehaald", () => updateStatus(s, "OPGEHAALD")),
+      button("Onderweg", () => updateStatus(s, "ONDERWEG")),
+      button("Probleem", async () => {
+        const note = prompt("Wat is het probleem?");
+        if (!note) return;
+        await updateStatus(s, "PROBLEEM", { problem_note: note });
+      }),
+      button("Afgeleverd", () => openDeliveredModal(s))
+    );
+  } else {
+    // In archief alleen verwijderen (optioneel)
+    actions.append(button("Verwijderen", async () => deleteShipment(s)));
+  }
 
   if (s.problem_note) sub.innerHTML = `<small><b>Probleem:</b> ${escapeHtml(s.problem_note)}</small>`;
   if (s.receiver_name) sub.innerHTML += `<br/><small><b>Ontvanger:</b> ${escapeHtml(s.receiver_name)}</small>`;
@@ -484,109 +461,101 @@ actions.append(
 // ===============================
 // EDIT MODE
 // ===============================
-
 function openEditMode(cardDiv, shipment) {
   const form = document.createElement("div");
   form.innerHTML = `
-  <hr/>
-  <b>Zending wijzigen</b><br/><br/>
+    <hr/>
+    <b>Zending wijzigen</b><br/><br/>
 
-  <label>Klantnaam</label>
-  <input id="editCustomer" value="${escapeHtml(shipment.customer_name)}" />
+    <label>Klantnaam</label>
+    <input id="editCustomer" value="${escapeHtml(shipment.customer_name)}" />
 
-  <label>Ophaaladres</label>
-  <input id="editPickup" value="${escapeHtml(shipment.pickup_address)}" />
+    <label>Ophaaladres</label>
+    <input id="editPickup" value="${escapeHtml(shipment.pickup_address)}" />
 
-  <label>Bezorgadres</label>
-  <input id="editDelivery" value="${escapeHtml(shipment.delivery_address)}" />
+    <label>Bezorgadres</label>
+    <input id="editDelivery" value="${escapeHtml(shipment.delivery_address)}" />
 
-  <label>Type zending</label>
-  <select id="editType">
-    <option value="doos">Doos</option>
-    <option value="enveloppe">Enveloppe</option>
-    <option value="pallet">Pallet</option>
-    <option value="overig">Overig</option>
-  </select>
+    <label>Type zending</label>
+    <select id="editType">
+      <option value="doos">Doos</option>
+      <option value="enveloppe">Enveloppe</option>
+      <option value="pallet">Pallet</option>
+      <option value="overig">Overig</option>
+    </select>
 
-  <div id="editOtherWrap" style="display:none;">
-    <label>Overig (invullen)</label>
-    <input id="editOther" placeholder="Bijv. koelbox / tas" value="${escapeHtml(shipment.shipment_type_other || "")}" />
-  </div>
+    <div id="editOtherWrap" style="display:none;">
+      <label>Overig (invullen)</label>
+      <input id="editOther" placeholder="Bijv. koelbox / tas" value="${escapeHtml(shipment.shipment_type_other || "")}" />
+    </div>
 
-  <label>Aantal colli</label>
-  <input id="editColli" type="number" min="1" value="${shipment.colli_count}" />
+    <label>Aantal colli</label>
+    <input id="editColli" type="number" min="1" value="${shipment.colli_count}" />
 
-  <br/><br/>
-  <button id="saveEdit">Opslaan</button>
-  <button id="cancelEdit" type="button">Annuleren</button>
-`;
-  // ✅ Stap 2: default waarde + overig tonen/verbergen
-const editType = form.querySelector("#editType");
-const editOtherWrap = form.querySelector("#editOtherWrap");
-const editOther = form.querySelector("#editOther");
+    <br/><br/>
+    <button id="saveEdit">Opslaan</button>
+    <button id="cancelEdit" type="button">Annuleren</button>
+  `;
 
-if (editType) {
-  editType.value = shipment.shipment_type || "doos";
-}
+  const editType = form.querySelector("#editType");
+  const editOtherWrap = form.querySelector("#editOtherWrap");
+  const editOther = form.querySelector("#editOther");
 
-function toggleOther() {
-  const isOther = editType && editType.value === "overig";
-  if (editOtherWrap) editOtherWrap.style.display = isOther ? "block" : "none";
-}
+  if (editType) editType.value = shipment.shipment_type || "doos";
 
-toggleOther();
-if (editType) editType.addEventListener("change", toggleOther);
+  function toggleOther() {
+    const isOther = editType && editType.value === "overig";
+    if (editOtherWrap) editOtherWrap.style.display = isOther ? "block" : "none";
+  }
+  toggleOther();
+  if (editType) editType.addEventListener("change", toggleOther);
+  if (editOther && shipment.shipment_type_other) editOther.value = shipment.shipment_type_other;
 
-// Zet bestaande overig waarde alvast goed
-if (editOther && shipment.shipment_type_other) {
-  editOther.value = shipment.shipment_type_other;
-}
   cardDiv.appendChild(form);
 
-  document.getElementById("cancelEdit").onclick = () => {
-    loadShipments(currentUserId);
-  };
+  form.querySelector("#cancelEdit").onclick = () => loadShipments(currentUserId);
 
-  document.getElementById("saveEdit").onclick = async () => {
+  form.querySelector("#saveEdit").onclick = async () => {
     const supabaseClient = await ensureClient();
 
-    const selectedType = (form.querySelector("#editType")?.value || "doos");
-const editOtherEl = form.querySelector("#editOther");
-const otherValue = ((editOtherEl && editOtherEl.value) || "").trim() || null;
+    const selectedType = editType?.value || "doos";
+    const otherValue = (editOther?.value || "").trim() || null;
 
-const updatePayload = {
-  customer_name: form.querySelector("#editCustomer")?.value || "",
-  pickup_address: form.querySelector("#editPickup")?.value || "",
-  delivery_address: form.querySelector("#editDelivery")?.value || "",
-  shipment_type: selectedType,
-  shipment_type_other: selectedType === "overig" ? otherValue : null,
-  colli_count: parseInt(form.querySelector("#editColli")?.value || "1",10)
-};
+    const updatePayload = {
+      customer_name: form.querySelector("#editCustomer")?.value || "",
+      pickup_address: form.querySelector("#editPickup")?.value || "",
+      delivery_address: form.querySelector("#editDelivery")?.value || "",
+      shipment_type: selectedType,
+      shipment_type_other: selectedType === "overig" ? otherValue : null,
+      colli_count: parseInt(form.querySelector("#editColli")?.value || "1", 10)
+    };
 
-const { error } = await supabaseClient
-  .from("shipments")
-  .update(updatePayload)
-  .eq("id", shipment.id);
+    const { error } = await supabaseClient
+      .from("shipments")
+      .update(updatePayload)
+      .eq("id", shipment.id)
+      .eq("driver_id", currentUserId);
 
-if (error) {
-  alert("Fout bij opslaan: " + error.message);
-  return;
-}
-    loadShipments(currentUserId);
+    if (error) {
+      alert("Fout bij opslaan: " + error.message);
+      return;
+    }
+
+    await loadShipments(currentUserId);
   };
 }
 
-// ---------------- create shipment
-async function createShipment(user) {
+// ---------------- create shipment (FIXED: gebruikt currentUserId)
+async function createShipment() {
   const supabaseClient = await ensureClient();
   msg("Bezig...");
 
-  const customer_name = document.getElementById("customer_name").value.trim();
-  const pickup_address = document.getElementById("pickup_address").value.trim();
-  const delivery_address = document.getElementById("delivery_address").value.trim();
-  const shipment_type = document.getElementById("shipment_type").value;
-  const shipment_type_other = document.getElementById("shipment_type_other").value.trim() || null;
-  const colli_count = parseInt(document.getElementById("colli_count").value || "1", 10);
+  const customer_name = document.getElementById("customer_name")?.value.trim() || "";
+  const pickup_address = document.getElementById("pickup_address")?.value.trim() || "";
+  const delivery_address = document.getElementById("delivery_address")?.value.trim() || "";
+  const shipment_type = document.getElementById("shipment_type")?.value || "doos";
+  const shipment_type_other = document.getElementById("shipment_type_other")?.value.trim() || null;
+  const colli_count = parseInt(document.getElementById("colli_count")?.value || "1", 10);
 
   if (!customer_name || !pickup_address || !delivery_address) {
     msg("Vul klantnaam + ophaaladres + bezorgadres in.");
@@ -600,12 +569,12 @@ async function createShipment(user) {
   const { data, error } = await supabaseClient
     .from("shipments")
     .insert({
-      driver_id: user.id,
+      driver_id: currentUserId,
       customer_name,
       pickup_address,
       delivery_address,
       shipment_type,
-      shipment_type_other,
+      shipment_type_other: shipment_type === "overig" ? shipment_type_other : null,
       colli_count
     })
     .select("*")
@@ -617,7 +586,7 @@ async function createShipment(user) {
   }
 
   msg(`Aangemaakt: ${data.track_code}`);
-  await loadShipments(user.id);
+  await loadShipments(currentUserId);
 }
 
 // ---------------- init
@@ -625,19 +594,16 @@ async function createShipment(user) {
   const user = await requireAuth();
   currentUserId = user.id;
 
-  // Create knop
   const btn = document.getElementById("btnCreate");
   if (btn) {
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
-      await createShipment(); // <-- als jouw functie anders heet: pas dit aan
+      await createShipment();
     });
   }
 
-  // Eerste laad
   await loadShipments(currentUserId);
 
-  // Realtime refresh
   const supabaseClient = await ensureClient();
   supabaseClient
     .channel("shipments_changes")
@@ -647,4 +613,4 @@ async function createShipment(user) {
       () => loadShipments(currentUserId)
     )
     .subscribe();
-})(); //
+})();
