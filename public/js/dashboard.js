@@ -235,31 +235,35 @@ async function updateStatus(shipment, newStatus, extra = {}) {
     return;
   }
 
-  async function deleteShipment(shipment) {
+ async function deleteShipment(shipment) {
   const ok = confirm(
     `Weet je zeker dat je zending ${shipment.track_code} wilt verwijderen?\n\nDit kan niet ongedaan gemaakt worden.`
   );
-  if (!ok) return;
+  if (!ok) return false;
 
   const supabaseClient = await ensureClient();
 
- const { error } = await supabaseClient
-  .from("shipments")
-  .delete()
-  .eq("id", shipment.id)
-  .eq("driver_id", currentUserId);
+  // Probeer echt te verwijderen + laat Supabase teruggeven wat er is verwijderd
+  const { data, error } = await supabaseClient
+    .from("shipments")
+    .delete()
+    .eq("id", shipment.id)
+    .eq("driver_id", currentUserId)
+    .select("id");
 
   if (error) {
     alert("Verwijderen mislukt: " + error.message);
-    return;
+    return false;
+  }
+
+  // Als data leeg is, is er NIETS verwijderd (meestal RLS / geen rechten / mismatch driver_id)
+  if (!data || data.length === 0) {
+    alert("Niet verwijderd. Waarschijnlijk geen rechten (RLS) of driver_id klopt niet.");
+    return false;
   }
 
   await loadShipments(currentUserId);
-}
-  
-  const eventNote = extra.problem_note || extra.delivered_note || extra.archive_note || null;
-  await addEvent(shipment.id, newStatus, eventNote);
-  await loadShipments(shipment.driver_id);
+  return true;
 }
 
 function button(text, onClick) {
