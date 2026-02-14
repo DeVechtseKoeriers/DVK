@@ -628,16 +628,16 @@ async function createShipment(user) {
   // Create knop
   const btn = document.getElementById("btnCreate");
   if (btn) {
-    btn.addEventListener("click", async () => {
-      // 👇 gebruik hier jouw bestaande create-functie of code
-      await createShipment(); // <-- als jouw functie anders heet: pas deze naam aan
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await createShipment(); // <-- als jouw functie anders heet: pas dit aan
     });
   }
 
-  // eerste laad
+  // Eerste laad
   await loadShipments(currentUserId);
 
-  // realtime refresh
+  // Realtime refresh
   const supabaseClient = await ensureClient();
   supabaseClient
     .channel("shipments_changes")
