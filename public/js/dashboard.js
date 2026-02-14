@@ -565,7 +565,7 @@ async function generateDeliveryPdf(s) {
     const doc = new jsPDF({ unit: "mm", format: "a4" });
 
     const left = 14;
-    let y = 16;
+    let y = 45;
 
     // ---------------- LOGO ----------------
 try {
