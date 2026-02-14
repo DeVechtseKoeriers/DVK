@@ -376,12 +376,11 @@ async function updateStatus(shipment, newStatus, extra = {}, eventNote = null) {
   const supabaseClient = await ensureClient();
 
   // (optioneel) timestamps vastleggen in shipments zelf
-  const tsExtra = { ...extra };
-  const nowIso = new Date().toISOString();
-
-  if (newStatus === "OPGEHAALD") tsExtra.pickup_at = tsExtra.pickup_at || nowIso;
-  if (newStatus === "ONDERWEG") tsExtra.on_route_at = tsExtra.on_route_at || nowIso;
-  if (newStatus === "AFGELEVERD") tsExtra.delivered_at = tsExtra.delivered_at || nowIso;
+  const { error } = await supabaseClient
+  .from("shipments")
+  .update({ status: newStatus, ...extra })
+  .eq("id", shipment.id)
+  .eq("driver_id", currentUserId);
 
   const { error } = await supabaseClient
     .from("shipments")
