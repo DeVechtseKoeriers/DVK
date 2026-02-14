@@ -63,6 +63,26 @@ function renderShipment(sh) {
   colliEl.textContent = (sh.colli_count ?? "-");
   receiverEl.textContent = sh.receiver_name || "-";
   noteEl.textContent = sh.delivered_note || "-";
+
+  function renderShipment(sh) {
+  resultEl.style.display = "block";
+  trackcodeEl.textContent = sh.track_code || "";
+  statusEl.textContent = labelStatus(sh.status);
+
+  pickupEl.textContent = sh.pickup_address || "-";
+  deliveryEl.textContent = sh.delivery_address || "-";
+
+  const t = sh.shipment_type === "overig"
+    ? (sh.shipment_type_other || "overig")
+    : (sh.shipment_type || "-");
+  typeEl.textContent = t;
+
+  colliEl.textContent = (sh.colli_count ?? "-");
+
+  // ✅ Alleen tonen na AFGELEVERD of GEARCHIVEERD (of zodra archived_at gevuld is)
+  const showAfter = sh.status === "AFGELEVERD" || sh.status === "GEARCHIVEERD" || !!sh.archived_at;
+  if (afterDeliveryCard) afterDeliveryCard.style.display = showAfter ? "block" : "none";
+}
 }
 
 function renderTimeline(events) {
