@@ -522,6 +522,114 @@ if (modalConfirm) {
   });
 }
 
+async function generateDeliveryPdf(s) {
+  try {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      alert("jsPDF is niet geladen. Controleer stap 1 (CDN script in dashboard.html).");
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+
+    const left = 14;
+    let y = 16;
+
+    // Header
+    doc.setFontSize(16);
+    doc.text("Afleverbon", left, y);
+    y += 8;
+
+    doc.setFontSize(10);
+    doc.text("De Vechtse Koeriers (DVK)", left, y);
+    y += 6;
+
+    doc.setDrawColor(0);
+    doc.line(left, y, 196, y);
+    y += 8;
+
+    // Basis info
+    doc.setFontSize(11);
+    doc.text(`Trackcode: ${s.track_code || ""}`, left, y); y += 6;
+    doc.text(`Klant: ${s.customer_name || ""}`, left, y); y += 6;
+    doc.text(`Type: ${s.shipment_type === "overig" ? (s.shipment_type_other || "overig") : (s.shipment_type || "")}`, left, y); y += 6;
+    doc.text(`Colli: ${s.colli_count ?? ""}`, left, y); y += 6;
+    doc.text(`Status: ${s.status || ""}`, left, y); y += 6;
+
+    y += 2;
+    doc.setFontSize(10);
+    doc.text(`Ophaaladres: ${s.pickup_address || ""}`, left, y); y += 6;
+    doc.text(`Bezorgadres: ${s.delivery_address || ""}`, left, y); y += 8;
+
+    // Aflever info
+    doc.setFontSize(11);
+    doc.text(`Ontvanger: ${s.receiver_name || "-"}`, left, y); y += 6;
+    doc.text(`Notitie: ${s.delivered_note || "-"}`, left, y); y += 8;
+
+    // Signature + photos (uit Supabase storage via signed URL)
+    const bucket = "dvk-delivery";
+
+    // HANDTEKENING
+    if (s.signature_path) {
+      doc.setFontSize(11);
+      doc.text("Handtekening:", left, y);
+      y += 4;
+
+      const sigUrl = await getSignedUrl(bucket, s.signature_path, 300);
+      const sigBytes = await fetchBytes(sigUrl);
+      const sigDataUrl = await bytesToDataUrl(sigBytes, "image/png");
+
+      // plaats handtekening (max breedte)
+      const sigW = 80;
+      const sigH = 30;
+      doc.addImage(sigDataUrl, "PNG", left, y, sigW, sigH);
+      y += sigH + 6;
+    } else {
+      doc.setFontSize(10);
+      doc.text("Handtekening: -", left, y);
+      y += 8;
+    }
+
+    // FOTO’S
+    const photoPaths = [s.photo1_path, s.photo2_path].filter(Boolean);
+    if (photoPaths.length) {
+      doc.setFontSize(11);
+      doc.text("Foto’s:", left, y);
+      y += 4;
+
+      // 2 foto’s naast elkaar
+      const imgW = 80;
+      const imgH = 55;
+      const gap = 6;
+
+      for (let i = 0; i < photoPaths.length; i++) {
+        const p = photoPaths[i];
+        const url = await getSignedUrl(bucket, p, 300);
+        const bytes = await fetchBytes(url);
+
+        // jpeg of png maakt niet veel uit, we stoppen het als JPEG in doc
+        const dataUrl = await bytesToDataUrl(bytes, "image/jpeg");
+
+        const x = left + (i % 2) * (imgW + gap);
+        doc.addImage(dataUrl, "JPEG", x, y, imgW, imgH);
+
+        if (i % 2 === 1) y += imgH + 6;
+      }
+      if (photoPaths.length % 2 === 1) y += imgH + 6;
+    }
+
+    // Footer
+    doc.setFontSize(9);
+    doc.text(`Gegenereerd: ${new Date().toLocaleString()}`, left, 287);
+
+    const name = `DVK-Afleverbon-${(s.track_code || "zending")}.pdf`;
+    doc.save(name);
+  } catch (err) {
+    console.error(err);
+    alert("PDF maken mislukt: " + (err?.message || err));
+  }
+}
+
 // ---------------- card render
 function renderShipmentCard(s) {
   const div = document.createElement("div");
@@ -547,6 +655,19 @@ function renderShipmentCard(s) {
 
   const actions = div.querySelector(".actions");
   const sub = div.querySelector(".sub");
+
+  // ✅ Alleen in Archief: afleverbon als PDF
+if (s.archived_at) {
+  actions.append(
+    button("Afleverbon (PDF)", async () => {
+      try {
+        await generateDeliveryPdf(s);
+      } catch (err) {
+        alert("PDF maken mislukt: " + (err?.message || err));
+      }
+    })
+  );
+}
 
   // Alleen acties als NIET gearchiveerd
   if (!s.archived_at) {
