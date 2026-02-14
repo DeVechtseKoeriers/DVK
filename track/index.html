@@ -2,27 +2,105 @@
 <html lang="nl">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>DVK Track & Trace</title>
-  <link rel="stylesheet" href="/DVK/public/css/app.css?v=2" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; background:#f6f7f9; }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 18px; }
+    .card { background:#fff; border:1px solid #e6e8ee; border-radius: 12px; padding: 14px; margin: 12px 0; }
+    h1 { margin: 0 0 8px 0; font-size: 20px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    input { padding:10px; border-radius:10px; border:1px solid #ccd3df; min-width: 260px; }
+    button { padding:10px 12px; border-radius:10px; border:1px solid #ccd3df; background:#fff; cursor:pointer; }
+    .muted { color:#667085; font-size: 13px; }
+    .status { font-weight: 700; }
+    .timeline { margin-top:10px; }
+    .ev { border-left: 3px solid #111; padding-left:10px; margin:10px 0; }
+    .ev .t { font-size: 12px; color:#667085; }
+    .ev .k { font-weight:700; margin-top:2px; }
+    .ev .n { margin-top:4px; }
+    .err { color:#b42318; }
+    .ok { color:#067647; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Track & Trace</h1>
-    <p class="small">Voer je code in om de zendingstatus te bekijken.</p>
-
-    <div class="row">
-      <input id="code" placeholder="Bijv. DVK2026123456" style="flex:1" />
-      <button id="btn">Zoek</button>
+  <div class="wrap">
+    <div class="card">
+      <h1>Track & Trace</h1>
+      <div class="row">
+        <input id="code" placeholder="Voer uw trackcode in (bijv. DVK2026...)" autocomplete="off" />
+        <button id="btn">Zoeken</button>
+      </div>
+      <div class="muted" style="margin-top:8px">
+        Tip: u kunt ook een link gebruiken zoals: <code>/DVK/track/?code=DVK2026xxxxx</code>
+      </div>
+      <div id="msg" class="muted" style="margin-top:10px"></div>
     </div>
 
-    <p id="msg" class="small"></p>
+    <div id="result" style="display:none;">
+      <div class="card">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <div class="muted">Trackcode</div>
+            <div style="font-size:18px; font-weight:800;" id="trackcode"></div>
+          </div>
+          <div>
+            <div class="muted">Status</div>
+            <div class="status" id="status"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="grid">
+          <div>
+            <div class="muted">Ophaaladres</div>
+            <div id="pickup"></div>
+          </div>
+          <div>
+            <div class="muted">Bezorgadres</div>
+            <div id="delivery"></div>
+          </div>
+          <div>
+            <div class="muted">Type zending</div>
+            <div id="type"></div>
+          </div>
+          <div>
+            <div class="muted">Aantal colli</div>
+            <div id="colli"></div>
+          </div>
+          <div>
+            <div class="muted">Ontvanger (bij aflevering)</div>
+            <div id="receiver"></div>
+          </div>
+          <div>
+            <div class="muted">Opmerking (bij aflevering)</div>
+            <div id="note"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="justify-content:space-between;">
+          <h2 style="margin:0; font-size:16px;">Tijdpad</h2>
+          <div class="muted" id="live"></div>
+        </div>
+        <div class="timeline" id="timeline"></div>
+      </div>
+
+      <div class="card">
+        <div class="muted">
+          Voor vragen over deze zending kunt u contact opnemen met <b>De Vechtse Koeriers</b>.
+        </div>
+      </div>
+    </div>
+
   </div>
 
-  <div id="out"></div>
-
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="/DVK/public/js/supabase-config.js?v=2"></script>
-  <script src="/DVK/public/js/track.js?v=2"></script>
+  <script src="/DVK/public/js/supabase-config.js?v=1"></script>
+  <script src="/DVK/public/js/track.js?v=1"></script>
 </body>
 </html>
