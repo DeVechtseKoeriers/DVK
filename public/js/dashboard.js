@@ -739,7 +739,9 @@ if (s.archived_at) {
       button("Probleem", async () => {
         const note = prompt("Wat is het probleem?");
         if (!note) return;
-        await updateStatus(s, "PROBLEEM", { problem_note: note });
+       await updateStatus(s, "PROBLEEM", {
+    problem_note: note
+});
       }),
       button("Afgeleverd", () => openDeliveredModal(s))
     );
