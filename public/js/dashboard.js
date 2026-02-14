@@ -57,7 +57,7 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;");
 }
 
-sync function fetchBytes(url) {
+async function fetchBytes(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error("Download mislukt: " + res.status);
   return new Uint8Array(await res.arrayBuffer());
