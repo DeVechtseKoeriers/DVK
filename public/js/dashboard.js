@@ -372,30 +372,35 @@ async function loadShipments(driverId) {
 }
 
 // ---------------- update status (FIXED: sluit netjes af)
-async function updateStatus(shipment, newStatus, extra = {}) {
+async function updateStatus(shipment, newStatus, extra = {}, eventNote = null) {
   const supabaseClient = await ensureClient();
+
+  // (optioneel) timestamps vastleggen in shipments zelf
+  const tsExtra = { ...extra };
+  const nowIso = new Date().toISOString();
+
+  if (newStatus === "OPGEHAALD") tsExtra.pickup_at = tsExtra.pickup_at || nowIso;
+  if (newStatus === "ONDERWEG") tsExtra.on_route_at = tsExtra.on_route_at || nowIso;
+  if (newStatus === "AFGELEVERD") tsExtra.delivered_at = tsExtra.delivered_at || nowIso;
 
   const { error } = await supabaseClient
     .from("shipments")
-    .update({ status: newStatus, ...extra })
-    .eq("id", shipment.id)
-    .eq("driver_id", currentUserId);
+    .update({ status: newStatus, ...tsExtra })
+    .eq("id", shipment.id);
 
   if (error) {
     alert("Update fout: " + error.message);
-    return false;
+    return;
   }
 
-  // optioneel eventlog
+  // ✅ Event opslaan in tijdpad
   try {
-    const eventNote = extra.problem_note || extra.delivered_note || extra.archive_note || null;
     await addEvent(shipment.id, newStatus, eventNote);
   } catch (e) {
-    // niet blokkerend
+    console.error("addEvent failed:", e);
   }
 
   await loadShipments(currentUserId);
-  return true;
 }
 
 // ---------------- definitief verwijderen (1 plek, geen dubbele delete functies)
