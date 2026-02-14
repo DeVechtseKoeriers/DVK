@@ -560,6 +560,7 @@ if (modalConfirm) {
 }
 
 async function generateDeliveryPdf(s) {
+  const shipment = s;
   try {
     if (!window.jspdf || !window.jspdf.jsPDF) {
       alert("jsPDF is niet geladen. Controleer stap 1 (CDN script in dashboard.html).");
