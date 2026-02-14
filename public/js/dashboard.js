@@ -94,96 +94,128 @@ function fmt(dt) {
 }
 
 async function generateDeliveryPdf(shipment) {
-  // jsPDF (UMD) via window.jspdf.jsPDF
-  const { jsPDF } = window.jspdf || {};
-  if (!jsPDF) {
-    alert("jsPDF niet gevonden. Controleer stap 1 (script-tag).");
-    return;
-  }
+  try {
+    if (!window.jspdf) {
+      alert("jsPDF is niet geladen.");
+      return;
+    }
 
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
 
-  // Header
-  doc.setFontSize(16);
-  doc.text("Afleverbon", 14, 18);
+    const bucket = "dvk-delivery";
 
-  doc.setFontSize(10);
-  doc.text(`Trackcode: ${shipment.track_code || ""}`, 14, 28);
-  doc.text(`Klant: ${shipment.customer_name || ""}`, 14, 34);
-  doc.text(`Ophaaladres: ${shipment.pickup_address || ""}`, 14, 40);
-  doc.text(`Bezorgadres: ${shipment.delivery_address || ""}`, 14, 46);
-  doc.text(`Status: ${shipment.status || ""}`, 14, 52);
-  doc.text(`Ontvanger: ${shipment.receiver_name || ""}`, 14, 58);
-  doc.text(`Afgeleverd op: ${fmt(shipment.delivered_at || shipment.updated_at || shipment.archived_at)}`, 14, 64);
-
-  if (shipment.delivered_note) {
-    doc.text(`Opmerking: ${shipment.delivered_note}`, 14, 72, { maxWidth: 180 });
-  }
-
-  // Afbeeldingen uit Supabase Storage (signed URLs)
-  const bucket = "dvk-delivery";
-
-  let y = 90;
-
-  // Handtekening
-  if (shipment.signature_path) {
+    // ---------------- LOGO ----------------
     try {
-      const sigUrl = await getSignedUrl(bucket, shipment.signature_path, 300);
-      const sigBytes = await fetchBytes(sigUrl);
-      const sigDataUrl = await bytesToDataUrl(sigBytes, "image/png");
-
-      doc.setFontSize(12);
-      doc.text("Handtekening:", 14, y);
-      y += 4;
-      doc.addImage(sigDataUrl, "PNG", 14, y, 80, 30);
-      y += 38;
+      const logoUrl = "/DVK/public/images/logo.png";
+      const logoBytes = await fetchBytes(logoUrl);
+      const logoDataUrl = await bytesToDataUrl(logoBytes, "image/png");
+      doc.addImage(logoDataUrl, "PNG", 14, 10, 50, 25);
     } catch (e) {
-      console.error(e);
-      doc.text("Handtekening: (laden mislukt)", 14, y);
+      console.log("Logo niet geladen:", e);
+    }
+
+    // ---------------- TITEL ----------------
+    doc.setFontSize(18);
+    doc.text("AFLEVERBON", 150, 20, { align: "right" });
+
+    let y = 45;
+
+    doc.setFontSize(11);
+
+    doc.text(`Trackcode: ${shipment.track_code}`, 14, y);
+    y += 8;
+
+    doc.text(`Klant: ${shipment.customer_name}`, 14, y);
+    y += 8;
+
+    doc.text(`Ophaaladres: ${shipment.pickup_address}`, 14, y);
+    y += 8;
+
+    doc.text(`Bezorgadres: ${shipment.delivery_address}`, 14, y);
+    y += 8;
+
+    doc.text(`Aantal colli: ${shipment.colli_count}`, 14, y);
+    y += 8;
+
+    if (shipment.receiver_name) {
+      doc.text(`Ontvangen door: ${shipment.receiver_name}`, 14, y);
       y += 8;
     }
-  }
 
-  // Foto 1
-  if (shipment.photo1_path) {
-    try {
-      const p1Url = await getSignedUrl(bucket, shipment.photo1_path, 300);
-      const p1Bytes = await fetchBytes(p1Url);
-      const p1DataUrl = await bytesToDataUrl(p1Bytes, "image/jpeg");
-
-      doc.setFontSize(12);
-      doc.text("Foto 1:", 14, y);
-      y += 4;
-      doc.addImage(p1DataUrl, "JPEG", 14, y, 90, 60);
-      y += 68;
-    } catch (e) {
-      console.error(e);
-      doc.text("Foto 1: (laden mislukt)", 14, y);
+    if (shipment.delivered_note) {
+      doc.text(`Opmerking: ${shipment.delivered_note}`, 14, y);
       y += 8;
     }
-  }
 
-  // Foto 2
-  if (shipment.photo2_path) {
-    try {
-      const p2Url = await getSignedUrl(bucket, shipment.photo2_path, 300);
-      const p2Bytes = await fetchBytes(p2Url);
-      const p2DataUrl = await bytesToDataUrl(p2Bytes, "image/jpeg");
+    y += 5;
 
-      doc.setFontSize(12);
-      doc.text("Foto 2:", 14, y);
-      y += 4;
-      doc.addImage(p2DataUrl, "JPEG", 14, y, 90, 60);
-      y += 68;
-    } catch (e) {
-      console.error(e);
-      doc.text("Foto 2: (laden mislukt)", 14, y);
-      y += 8;
+    // ---------------- HANDTEKENING ----------------
+    if (shipment.signature_path) {
+      try {
+        const sigUrl = await getSignedUrl(bucket, shipment.signature_path);
+        const sigBytes = await fetchBytes(sigUrl);
+        const sigDataUrl = await bytesToDataUrl(sigBytes, "image/png");
+
+        doc.text("Handtekening:", 14, y);
+        y += 5;
+
+        doc.addImage(sigDataUrl, "PNG", 14, y, 60, 30);
+        y += 40;
+      } catch (e) {
+        console.log("Handtekening laden mislukt", e);
+      }
     }
-  }
 
-  const safeCode = (shipment.track_code || "afleverbon").replace(/[^a-z0-9_-]/gi, "_");
-  doc.save(`Afleverbon-${safeCode}.pdf`);
+    // ---------------- FOTO 1 ----------------
+    if (shipment.photo1_path) {
+      try {
+        const p1Url = await getSignedUrl(bucket, shipment.photo1_path);
+        const p1Bytes = await fetchBytes(p1Url);
+        const p1DataUrl = await bytesToDataUrl(p1Bytes, "image/jpeg");
+
+        doc.text("Foto 1:", 14, y);
+        y += 5;
+
+        doc.addImage(p1DataUrl, "JPEG", 14, y, 90, 60);
+        y += 70;
+      } catch (e) {
+        console.log("Foto 1 laden mislukt", e);
+      }
+    }
+
+    // ---------------- FOTO 2 ----------------
+    if (shipment.photo2_path) {
+      try {
+        const p2Url = await getSignedUrl(bucket, shipment.photo2_path);
+        const p2Bytes = await fetchBytes(p2Url);
+        const p2DataUrl = await bytesToDataUrl(p2Bytes, "image/jpeg");
+
+        doc.text("Foto 2:", 14, y);
+        y += 5;
+
+        doc.addImage(p2DataUrl, "JPEG", 14, y, 90, 60);
+        y += 70;
+      } catch (e) {
+        console.log("Foto 2 laden mislukt", e);
+      }
+    }
+
+    // ---------------- FOOTER ----------------
+    doc.setFontSize(9);
+    doc.text(
+      "Voor vragen over deze levering kunt u contact opnemen met De Vechtse Koeriers.",
+      105,
+      285,
+      { align: "center" }
+    );
+
+    const safeCode = (shipment.track_code || "afleverbon").replace(/[^a-z0-9]/gi, "_");
+    doc.save(`Afleverbon-${safeCode}.pdf`);
+
+  } catch (err) {
+    alert("PDF maken mislukt: " + (err?.message || err));
+  }
 }
 
 async function ensureClient() {
