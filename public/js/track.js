@@ -1,140 +1,175 @@
-function qs(name) {
-  return new URLSearchParams(window.location.search).get(name);
-}
+const codeEl = document.getElementById("code");
+const btnEl = document.getElementById("btn");
+const msgEl = document.getElementById("msg");
 
-function esc(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
+const resultEl = document.getElementById("result");
+const trackcodeEl = document.getElementById("trackcode");
+const statusEl = document.getElementById("status");
+const pickupEl = document.getElementById("pickup");
+const deliveryEl = document.getElementById("delivery");
+const typeEl = document.getElementById("type");
+const colliEl = document.getElementById("colli");
+const receiverEl = document.getElementById("receiver");
+const noteEl = document.getElementById("note");
+const timelineEl = document.getElementById("timeline");
+const liveEl = document.getElementById("live");
 
-function badge(status) {
-  const map = {
-    AANGEMAAKT: "Aangemaakt",
-    OPGEHAALD: "Opgehaald",
-    ONDERWEG: "Onderweg",
-    PROBLEEM: "Probleem",
-    AFGELEVERD: "Afgeleverd",
-    GEARCHIVEERD: "Gearchiveerd"
-  };
-  return map[status] || status;
+let currentShipmentId = null;
+let channel = null;
+
+function setMsg(text, kind = "muted") {
+  msgEl.className = kind === "err" ? "err" : kind === "ok" ? "ok" : "muted";
+  msgEl.textContent = text || "";
 }
 
 function fmt(dt) {
   try {
-    return new Date(dt).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" });
-  } catch {
-    return dt;
-  }
+    const d = new Date(dt);
+    return isNaN(d) ? "" : d.toLocaleString("nl-NL");
+  } catch { return ""; }
+}
+
+function labelStatus(s) {
+  const map = {
+    "AANGEMAAKT": "Aangemaakt",
+    "OPGEHAALD": "Opgehaald",
+    "ONDERWEG": "Onderweg",
+    "AFGELEVERD": "Afgeleverd",
+    "PROBLEEM": "Probleem",
+    "GEARCHIVEERD": "Gearchiveerd",
+  };
+  return map[s] || s || "-";
 }
 
 async function ensureClient() {
-  if (!window.supabaseClient) throw new Error("supabaseClient missing");
+  if (!window.supabaseClient) throw new Error("supabaseClient ontbreekt (supabase-config.js)");
   return window.supabaseClient;
 }
 
-async function loadTrack() {
-  const code = (qs("code") || "").trim().toUpperCase();
-  const out = document.getElementById("out");
-  const msg = document.getElementById("msg");
-  const codeEl = document.getElementById("code");
-  const btn = document.getElementById("btn");
+// Render
+function renderShipment(sh) {
+  resultEl.style.display = "block";
+  trackcodeEl.textContent = sh.track_code || "";
+  statusEl.textContent = labelStatus(sh.status);
 
-  msg.textContent = "";
-  out.innerHTML = "";
+  pickupEl.textContent = sh.pickup_address || "-";
+  deliveryEl.textContent = sh.delivery_address || "-";
 
-  if (!code) {
-    msg.textContent = "Voer je Track & Trace code in.";
+  const t = sh.shipment_type === "overig"
+    ? (sh.shipment_type_other || "overig")
+    : (sh.shipment_type || "-");
+  typeEl.textContent = t;
+
+  colliEl.textContent = (sh.colli_count ?? "-");
+  receiverEl.textContent = sh.receiver_name || "-";
+  noteEl.textContent = sh.delivered_note || "-";
+}
+
+function renderTimeline(events) {
+  timelineEl.innerHTML = "";
+  if (!events || events.length === 0) {
+    timelineEl.innerHTML = `<div class="muted">Nog geen updates beschikbaar.</div>`;
     return;
   }
 
-  codeEl.value = code;
-  btn.disabled = true;
-  msg.textContent = "Ophalen...";
+  for (const ev of events) {
+    const div = document.createElement("div");
+    div.className = "ev";
+    const when = fmt(ev.created_at);
+    const kind = labelStatus(ev.event_type);
 
-  try {
-    const supabaseClient = await ensureClient();
-
-    // shipment info
-    const { data: ship, error: e1 } = await supabaseClient.rpc("get_public_shipment", { p_track_code: code });
-    if (e1) throw e1;
-    if (!ship || ship.length === 0) {
-      msg.textContent = "Geen zending gevonden met deze code.";
-      btn.disabled = false;
-      return;
-    }
-    const s = ship[0];
-
-    // events
-    const { data: events, error: e2 } = await supabaseClient.rpc("get_public_events", { p_track_code: code });
-    if (e2) throw e2;
-
-    msg.textContent = "";
-
-    const typeText = (s.shipment_type === "overig") ? (s.shipment_type_other || "overig") : s.shipment_type;
-
-    out.innerHTML = `
-      <div class="card">
-        <h1>Track & Trace</h1>
-        <div class="row">
-          <div><b>Code:</b> ${esc(s.track_code)}</div>
-          <div><b>Status:</b> ${esc(badge(s.status))}</div>
-        </div>
-        <hr/>
-        <div class="row">
-          <div><b>Ophaaladres:</b><br/>${esc(s.pickup_address)}</div>
-          <div><b>Bezorgadres:</b><br/>${esc(s.delivery_address)}</div>
-        </div>
-        <div class="row">
-          <div><b>Type:</b> ${esc(typeText)}</div>
-          <div><b>Aantal colli:</b> ${esc(s.colli_count)}</div>
-        </div>
-
-        ${s.problem_note ? `<p class="warn"><b>Probleem:</b> ${esc(s.problem_note)}</p>` : ""}
-
-        ${s.receiver_name ? `<p><b>Ontvangen door:</b> ${esc(s.receiver_name)}</p>` : ""}
-
-        ${s.delivered_note ? `<p><b>Opmerking:</b> ${esc(s.delivered_note)}</p>` : ""}
-
-        <h2>Tijdlijn</h2>
-        <div class="timeline" id="tl"></div>
-
-        <hr/>
-        <p class="small">
-          Afleverbon beschikbaar na levering (indien van toepassing).<br/>
-          Contact: De Vechtse Koeriers • info@dbparcel.com • 0625550524
-        </p>
-      </div>
+    div.innerHTML = `
+      <div class="t">${when}</div>
+      <div class="k">${kind}</div>
+      ${ev.event_type === "PROBLEEM" && ev.note ? `<div class="n">${ev.note}</div>` : ""}
     `;
-
-    const tl = document.getElementById("tl");
-    if (!events || events.length === 0) {
-      tl.innerHTML = `<small>Geen updates.</small>`;
-    } else {
-      tl.innerHTML = events.map(ev => {
-        const note = ev.note ? `<div class="small">${esc(ev.note)}</div>` : "";
-        return `
-          <div class="tl-item">
-            <div class="tl-time">${esc(fmt(ev.created_at))}</div>
-            <div class="tl-title">${esc(badge(ev.event_type))}</div>
-            ${note}
-          </div>
-        `;
-      }).join("");
-    }
-  } catch (err) {
-    console.error(err);
-    msg.textContent = "Fout bij ophalen. Probeer opnieuw.";
-  } finally {
-    btn.disabled = false;
+    timelineEl.appendChild(div);
   }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  const btn = document.getElementById("btn");
-  btn.addEventListener("click", loadTrack);
+// RPC call
+async function fetchByCode(trackCode) {
+  const supabaseClient = await ensureClient();
+  // We halen alles via RPC zodat anon veilig blijft
+  const { data, error } = await supabaseClient.rpc("dvk_track_lookup", { p_code: trackCode });
+  if (error) throw error;
+  return data; // { shipment: {...}, events: [...] } of null
+}
 
-  // auto-load als ?code=... in URL zit
-  if (qs("code")) loadTrack();
+async function load(trackCode) {
+  setMsg("Zoeken...", "muted");
+  resultEl.style.display = "none";
+  currentShipmentId = null;
+
+  const data = await fetchByCode(trackCode);
+
+  if (!data || !data.shipment) {
+    setMsg("Geen zending gevonden voor deze trackcode.", "err");
+    return;
+  }
+
+  setMsg("Gevonden ✅", "ok");
+  renderShipment(data.shipment);
+  renderTimeline(data.events || []);
+  currentShipmentId = data.shipment.id;
+
+  // realtime aanzetten
+  await setupRealtime(trackCode);
+}
+
+async function setupRealtime(trackCode) {
+  const supabaseClient = await ensureClient();
+
+  // oude channel weg
+  if (channel) {
+    supabaseClient.removeChannel(channel);
+    channel = null;
+  }
+
+  liveEl.textContent = "Live updates actief";
+
+  channel = supabaseClient
+    .channel("track_live_" + trackCode)
+    .on("postgres_changes", { event: "*", schema: "public", table: "shipments" }, async () => {
+      // herlaad via RPC (veilig)
+      try {
+        const data = await fetchByCode(trackCode);
+        if (data?.shipment) renderShipment(data.shipment);
+      } catch {}
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "shipment_events" }, async () => {
+      try {
+        const data = await fetchByCode(trackCode);
+        if (data?.events) renderTimeline(data.events);
+      } catch {}
+    })
+    .subscribe();
+}
+
+// UI events
+btnEl.addEventListener("click", async () => {
+  const code = (codeEl.value || "").trim();
+  if (!code) return setMsg("Vul een trackcode in.", "err");
+  try {
+    await load(code);
+  } catch (e) {
+    console.error(e);
+    setMsg("Fout bij ophalen: " + (e?.message || e), "err");
+  }
 });
+
+codeEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") btnEl.click();
+});
+
+// autoload via ?code=
+(() => {
+  const p = new URLSearchParams(window.location.search);
+  const c = p.get("code");
+  if (c) {
+    codeEl.value = c;
+    btnEl.click();
+  } else {
+    setMsg("Voer uw trackcode in om de zending te bekijken.", "muted");
+  }
+})();
