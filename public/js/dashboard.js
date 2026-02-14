@@ -617,6 +617,37 @@ try {
     // Signature + photos (uit Supabase storage via signed URL)
     const bucket = "dvk-delivery";
 
+    // ---------------- TIJDPAD ----------------
+y += 10;
+doc.setFontSize(13);
+doc.text("Tijdpad", left, y);
+y += 8;
+
+doc.setFontSize(10);
+
+if (shipment.pickup_at) {
+  doc.text(`Opgehaald: ${fmt(shipment.pickup_at)}`, left, y);
+  y += 6;
+}
+
+if (shipment.on_route_at) {
+  doc.text(`Onderweg: ${fmt(shipment.on_route_at)}`, left, y);
+  y += 6;
+}
+
+if (shipment.delivered_at) {
+  doc.text(`Afgeleverd: ${fmt(shipment.delivered_at)}`, left, y);
+  y += 6;
+}
+
+if (shipment.problem_note) {
+  y += 4;
+  doc.text("Probleem gemeld:", left, y);
+  y += 6;
+  doc.text(shipment.problem_note, left, y, { maxWidth: 180 });
+  y += 10;
+}
+
     // HANDTEKENING
     if (s.signature_path) {
       doc.setFontSize(11);
