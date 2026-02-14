@@ -57,6 +57,135 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;");
 }
 
+sync function fetchBytes(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Download mislukt: " + res.status);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+async function getSignedUrl(bucket, path, expiresInSec = 300) {
+  if (!path) return null;
+  const supabaseClient = await ensureClient();
+  const { data, error } = await supabaseClient
+    .storage
+    .from(bucket)
+    .createSignedUrl(path, expiresInSec);
+
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+// ---------------- PDF helpers
+async function bytesToDataUrl(bytes, mime = "image/png") {
+  const blob = new Blob([bytes], { type: mime });
+  return await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);   // data:image/...;base64,...
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+function fmt(dt) {
+  try {
+    const d = new Date(dt);
+    return isNaN(d) ? "" : d.toLocaleString("nl-NL");
+  } catch { return ""; }
+}
+
+async function generateDeliveryPdf(shipment) {
+  // jsPDF (UMD) via window.jspdf.jsPDF
+  const { jsPDF } = window.jspdf || {};
+  if (!jsPDF) {
+    alert("jsPDF niet gevonden. Controleer stap 1 (script-tag).");
+    return;
+  }
+
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+
+  // Header
+  doc.setFontSize(16);
+  doc.text("Afleverbon", 14, 18);
+
+  doc.setFontSize(10);
+  doc.text(`Trackcode: ${shipment.track_code || ""}`, 14, 28);
+  doc.text(`Klant: ${shipment.customer_name || ""}`, 14, 34);
+  doc.text(`Ophaaladres: ${shipment.pickup_address || ""}`, 14, 40);
+  doc.text(`Bezorgadres: ${shipment.delivery_address || ""}`, 14, 46);
+  doc.text(`Status: ${shipment.status || ""}`, 14, 52);
+  doc.text(`Ontvanger: ${shipment.receiver_name || ""}`, 14, 58);
+  doc.text(`Afgeleverd op: ${fmt(shipment.delivered_at || shipment.updated_at || shipment.archived_at)}`, 14, 64);
+
+  if (shipment.delivered_note) {
+    doc.text(`Opmerking: ${shipment.delivered_note}`, 14, 72, { maxWidth: 180 });
+  }
+
+  // Afbeeldingen uit Supabase Storage (signed URLs)
+  const bucket = "dvk-delivery";
+
+  let y = 90;
+
+  // Handtekening
+  if (shipment.signature_path) {
+    try {
+      const sigUrl = await getSignedUrl(bucket, shipment.signature_path, 300);
+      const sigBytes = await fetchBytes(sigUrl);
+      const sigDataUrl = await bytesToDataUrl(sigBytes, "image/png");
+
+      doc.setFontSize(12);
+      doc.text("Handtekening:", 14, y);
+      y += 4;
+      doc.addImage(sigDataUrl, "PNG", 14, y, 80, 30);
+      y += 38;
+    } catch (e) {
+      console.error(e);
+      doc.text("Handtekening: (laden mislukt)", 14, y);
+      y += 8;
+    }
+  }
+
+  // Foto 1
+  if (shipment.photo1_path) {
+    try {
+      const p1Url = await getSignedUrl(bucket, shipment.photo1_path, 300);
+      const p1Bytes = await fetchBytes(p1Url);
+      const p1DataUrl = await bytesToDataUrl(p1Bytes, "image/jpeg");
+
+      doc.setFontSize(12);
+      doc.text("Foto 1:", 14, y);
+      y += 4;
+      doc.addImage(p1DataUrl, "JPEG", 14, y, 90, 60);
+      y += 68;
+    } catch (e) {
+      console.error(e);
+      doc.text("Foto 1: (laden mislukt)", 14, y);
+      y += 8;
+    }
+  }
+
+  // Foto 2
+  if (shipment.photo2_path) {
+    try {
+      const p2Url = await getSignedUrl(bucket, shipment.photo2_path, 300);
+      const p2Bytes = await fetchBytes(p2Url);
+      const p2DataUrl = await bytesToDataUrl(p2Bytes, "image/jpeg");
+
+      doc.setFontSize(12);
+      doc.text("Foto 2:", 14, y);
+      y += 4;
+      doc.addImage(p2DataUrl, "JPEG", 14, y, 90, 60);
+      y += 68;
+    } catch (e) {
+      console.error(e);
+      doc.text("Foto 2: (laden mislukt)", 14, y);
+      y += 8;
+    }
+  }
+
+  const safeCode = (shipment.track_code || "afleverbon").replace(/[^a-z0-9_-]/gi, "_");
+  doc.save(`Afleverbon-${safeCode}.pdf`);
+}
+
 async function ensureClient() {
   if (!window.supabaseClient) throw new Error("supabaseClient missing");
   return window.supabaseClient;
