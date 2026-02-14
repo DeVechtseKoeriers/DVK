@@ -567,6 +567,17 @@ async function generateDeliveryPdf(s) {
     const left = 14;
     let y = 16;
 
+    // ---------------- LOGO ----------------
+try {
+  const logoUrl = "/DVK/images/DVK logo3.jpg";
+  const logoBytes = await fetchBytes(logoUrl);
+  const logoDataUrl = await bytesToDataUrl(logoBytes, "image/jpeg");
+
+  doc.addImage(logoDataUrl, "JPEG", 14, 10, 50, 25);
+} catch (e) {
+  console.log("Logo niet geladen:", e);
+}
+
     // Header
     doc.setFontSize(16);
     doc.text("Afleverbon", left, y);
