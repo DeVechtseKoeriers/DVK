@@ -107,7 +107,7 @@ async function generateDeliveryPdf(shipment) {
 
     // ---------------- LOGO ----------------
     try {
-      const logoUrl = "/DVK/public/images/logo.png";
+      const logoUrl = "/DVK/images/DVK logo3.jpg";
       const logoBytes = await fetchBytes(logoUrl);
       const logoDataUrl = await bytesToDataUrl(logoBytes, "image/png");
       doc.addImage(logoDataUrl, "PNG", 14, 10, 50, 25);
