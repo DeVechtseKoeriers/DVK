@@ -52,6 +52,21 @@ function renderShipment(sh) {
   trackcodeEl.textContent = sh.track_code || "";
   statusEl.textContent = labelStatus(sh.status);
 
+  // ---------------- Afleverbon melding alleen bij AFGELEVERD
+const afterCard = document.getElementById("afterDeliveryCard");
+const afterText = document.getElementById("afterDeliveryText");
+
+if (sh.status === "AFGELEVERD") {
+  afterCard.style.display = "block";
+  afterText.innerHTML = `
+    Voor vragen over deze zending kunt u contact opnemen met 
+    <b>De Vechtse Koeriers</b>.<br/>
+    De afleverbon en eventuele afleverfoto’s zijn op verzoek beschikbaar.
+  `;
+} else {
+  afterCard.style.display = "none";
+}
+
   pickupEl.textContent = sh.pickup_address || "-";
   deliveryEl.textContent = sh.delivery_address || "-";
 
