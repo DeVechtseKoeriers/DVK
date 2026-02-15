@@ -130,7 +130,30 @@
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
 <script src="/DVK/public/js/supabase-config.js?v=11"></script>
-<script src="/DVK/public/js/dashboard.js?v=11"></script>
-  
+
+<div class="card">
+  <h2>Routeplanner</h2>
+
+  <div class="row">
+    <button id="btnPlanRoute">Plan optimale route</button>
+    <label style="display:flex;gap:8px;align-items:center;">
+      <input type="checkbox" id="autoRoute" checked />
+      Automatisch herberekenen
+    </label>
+    <small id="routeMsg" class="muted"></small>
+  </div>
+
+  <div id="routeList" class="routeList"></div>
+
+  <div id="map" style="height:360px;border-radius:12px;margin-top:12px;"></div>
+
+<!-- Google Maps API -->
+<script
+  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDXE-jkOXsKxIdyXarrbBsA3ut_C3nvWMI&libraries=places&callback=initMaps"
+  async
+  defer
+></script>
+
+<script src="/DVK/public/js/dashboard.js?v=11"></script>  
 </body>
 </html>
