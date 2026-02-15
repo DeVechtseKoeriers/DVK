@@ -1,3 +1,8 @@
+// DVK Track & Trace (Customer) - Clean & Working
+// - Lookup via RPC: dvk_track_lookup (anon veilig)
+// - Toon ontvanger + opmerking (receiver_name + delivered_note)
+// - Toon afleverbon melding alleen bij AFGELEVERD of GEARCHIVEERD
+// - Realtime updates (shipments + shipment_events) zonder refresh
 
 const codeEl = document.getElementById("code");
 const btnEl = document.getElementById("btn");
@@ -10,19 +15,20 @@ const pickupEl = document.getElementById("pickup");
 const deliveryEl = document.getElementById("delivery");
 const typeEl = document.getElementById("type");
 const colliEl = document.getElementById("colli");
+
 const receiverEl = document.getElementById("receiver");
 const noteEl = document.getElementById("note");
+
 const timelineEl = document.getElementById("timeline");
 const liveEl = document.getElementById("live");
 
-// Nieuw blok (index.html)
 const afterCard = document.getElementById("afterDeliveryCard");
 const afterText = document.getElementById("afterDeliveryText");
 
-let currentShipmentId = null;
 let channel = null;
 
 function setMsg(text, kind = "muted") {
+  if (!msgEl) return;
   msgEl.className = kind === "err" ? "err" : kind === "ok" ? "ok" : "muted";
   msgEl.textContent = text || "";
 }
@@ -49,47 +55,52 @@ function labelStatus(s) {
 }
 
 async function ensureClient() {
-  if (!window.supabaseClient) {
-    throw new Error("supabaseClient ontbreekt (supabase-config.js)");
-  }
+  if (!window.supabaseClient) throw new Error("supabaseClient ontbreekt (supabase-config.js)");
   return window.supabaseClient;
 }
 
-// =======================
-// RENDER SHIPMENT (1x!)
-// =======================
+// ---------- Render shipment
 function renderShipment(sh) {
+  if (!resultEl) return;
   resultEl.style.display = "block";
-  trackcodeEl.textContent = sh.track_code || "";
-  statusEl.textContent = labelStatus(sh.status);
 
-  pickupEl.textContent = sh.pickup_address || "-";
-  deliveryEl.textContent = sh.delivery_address || "-";
+  if (trackcodeEl) trackcodeEl.textContent = sh.track_code || "";
+  if (statusEl) statusEl.textContent = labelStatus(sh.status);
+
+  if (pickupEl) pickupEl.textContent = sh.pickup_address || "-";
+  if (deliveryEl) deliveryEl.textContent = sh.delivery_address || "-";
 
   const t =
     sh.shipment_type === "overig"
-      ? sh.shipment_type_other || "overig"
-      : sh.shipment_type || "-";
-  typeEl.textContent = t;
+      ? (sh.shipment_type_other || "overig")
+      : (sh.shipment_type || "-");
+  if (typeEl) typeEl.textContent = t;
 
-  colliEl.textContent = sh.colli_count ?? "-";
-  receiverEl.textContent = sh.receiver_name || "-";
-  noteEl.textContent = sh.delivered_note || "-";
+  if (colliEl) colliEl.textContent = (sh.colli_count ?? "-");
 
-  // ✅ Afleverbon melding alleen bij AFGELEVERD of GEARCHIVEERD (of archived_at gevuld)
-  const showAfter =
-    sh.status === "AFGELEVERD" || sh.status === "GEARCHIVEERD" || !!sh.archived_at;
+  // ✅ Ontvanger + Opmerking tonen
+  if (receiverEl) receiverEl.textContent = sh.receiver_name || "-";
+  if (noteEl) noteEl.textContent = sh.delivered_note || "-";
 
+  // ✅ Afleverbon melding alleen bij AFGELEVERD of GEARCHIVEERD
+  const showAfter = sh.status === "AFGELEVERD" || sh.status === "GEARCHIVEERD" || !!sh.archived_at;
   if (afterCard) afterCard.style.display = showAfter ? "block" : "none";
+  if (afterText && showAfter) {
+    afterText.innerHTML = `
+      Afleverbon is opvraagbaar bij <b>De Vechtse Koeriers</b>.<br/>
+      Eventuele afleverfoto’s zijn op verzoek beschikbaar.
+    `;
+  }
 
-  if (showAfter && afterText) {
-    afterText.innerHTML =
-      `De afleverbon en eventuele afleverfoto’s zijn op verzoek beschikbaar bij ` +
-      `<b>De Vechtse Koeriers</b>.`;
+  // Live label
+  if (liveEl) {
+    liveEl.textContent = "Live updates actief";
   }
 }
 
+// ---------- Render timeline
 function renderTimeline(events) {
+  if (!timelineEl) return;
   timelineEl.innerHTML = "";
 
   if (!events || events.length === 0) {
@@ -113,9 +124,7 @@ function renderTimeline(events) {
   }
 }
 
-// =======================
-// DATA LOAD (RPC)
-// =======================
+// ---------- RPC call (anon veilig)
 async function fetchByCode(trackCode) {
   const supabaseClient = await ensureClient();
   const { data, error } = await supabaseClient.rpc("dvk_track_lookup", { p_code: trackCode });
@@ -123,27 +132,27 @@ async function fetchByCode(trackCode) {
   return data; // { shipment: {...}, events: [...] } of null
 }
 
+// ---------- Load and render
 async function load(trackCode) {
   setMsg("Zoeken...", "muted");
-
-  resultEl.style.display = "none";
-  currentShipmentId = null;
+  if (resultEl) resultEl.style.display = "none";
 
   const data = await fetchByCode(trackCode);
 
   if (!data || !data.shipment) {
     setMsg("Geen zending gevonden voor deze trackcode.", "err");
+    if (liveEl) liveEl.textContent = "";
     return;
   }
 
   setMsg("Gevonden ✅", "ok");
   renderShipment(data.shipment);
   renderTimeline(data.events || []);
-  currentShipmentId = data.shipment.id;
 
   await setupRealtime(trackCode);
 }
 
+// ---------- Realtime (zonder refresh)
 async function setupRealtime(trackCode) {
   const supabaseClient = await ensureClient();
 
@@ -153,51 +162,68 @@ async function setupRealtime(trackCode) {
     channel = null;
   }
 
-  if (liveEl) liveEl.textContent = "Live updates actief";
-
+  // ✅ Filter op track_code zodat niet elke wijziging in heel de DB triggert
   channel = supabaseClient
     .channel("track_live_" + trackCode)
-    .on("postgres_changes", { event: "*", schema: "public", table: "shipments" }, async () => {
-      try {
-        const data = await fetchByCode(trackCode);
-        if (data?.shipment) renderShipment(data.shipment);
-      } catch {}
-    })
-    .on("postgres_changes", { event: "*", schema: "public", table: "shipment_events" }, async () => {
-      try {
-        const data = await fetchByCode(trackCode);
-        if (data?.events) renderTimeline(data.events);
-      } catch {}
-    })
-    .subscribe();
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "shipments", filter: `track_code=eq.${trackCode}` },
+      async () => {
+        try {
+          const data = await fetchByCode(trackCode);
+          if (data?.shipment) renderShipment(data.shipment);
+        } catch {}
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "shipment_events" },
+      async () => {
+        // shipment_events heeft geen track_code; we herladen veilig via RPC
+        try {
+          const data = await fetchByCode(trackCode);
+          if (data?.events) renderTimeline(data.events);
+          if (data?.shipment) renderShipment(data.shipment);
+        } catch {}
+      }
+    )
+    .subscribe((status) => {
+      if (liveEl) {
+        liveEl.textContent =
+          status === "SUBSCRIBED" ? "Live updates actief" : "Live updates verbinden...";
+      }
+    });
 }
 
-// =======================
-// UI EVENTS
-// =======================
-btnEl.addEventListener("click", async () => {
-  const code = (codeEl.value || "").trim();
-  if (!code) return setMsg("Vul een trackcode in.", "err");
+// ---------- UI events
+if (btnEl) {
+  btnEl.addEventListener("click", async () => {
+    const code = (codeEl?.value || "").trim();
+    if (!code) return setMsg("Vul een trackcode in.", "err");
 
-  try {
-    await load(code);
-  } catch (e) {
-    console.error(e);
-    setMsg("Fout bij ophalen: " + (e?.message || e), "err");
-  }
-});
+    try {
+      await load(code);
+    } catch (e) {
+      console.error(e);
+      setMsg("Fout bij ophalen: " + (e?.message || e), "err");
+      if (liveEl) liveEl.textContent = "";
+    }
+  });
+}
 
-codeEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") btnEl.click();
-});
+if (codeEl) {
+  codeEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") btnEl?.click();
+  });
+}
 
 // autoload via ?code=
 (() => {
   const p = new URLSearchParams(window.location.search);
   const c = p.get("code");
-  if (c) {
+  if (c && codeEl) {
     codeEl.value = c;
-    btnEl.click();
+    btnEl?.click();
   } else {
     setMsg("Voer uw trackcode in om de zending te bekijken.", "muted");
   }
