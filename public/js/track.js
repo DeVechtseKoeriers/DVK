@@ -98,17 +98,24 @@ function renderShipment(sh) {
   }
 }
 
-// ---------- Render timeline
 function renderTimeline(events) {
-  if (!timelineEl) return;
   timelineEl.innerHTML = "";
-
   if (!events || events.length === 0) {
     timelineEl.innerHTML = `<div class="muted">Nog geen updates beschikbaar.</div>`;
     return;
   }
 
+  // ✅ Dedupliceren (zelfde event_type + zelfde created_at)
+  const seen = new Set();
+  const clean = [];
   for (const ev of events) {
+    const key = `${ev.event_type || ""}|${ev.created_at || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push(ev);
+  }
+
+  for (const ev of clean) {
     const div = document.createElement("div");
     div.className = "ev";
 
