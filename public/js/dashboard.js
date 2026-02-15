@@ -7,7 +7,7 @@
 // - Timeline via shipment_events
 // - PDF afleverbon
 // - Google Places Autocomplete (bedrijven + adressen)
-// - Routeplanner + kaart (optimal route + auto reroute)
+// - Routeplanner + kaart (pickup vóór delivery, eindigt altijd met bezorgen)
 
 (() => {
   // ---------------- DOM
@@ -55,19 +55,18 @@
 
   // cache voor routeplanner
   let activeShipmentsCache = [];
+  window.activeShipmentsCache = activeShipmentsCache;
 
   // depot / start-eindpunt
-  const DEPOT_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
+  const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
 
   // ---------------- UI Helpers
   function msg(t) {
     if (createMsg) createMsg.textContent = t || "";
   }
-
   function routeMsg(t) {
     if (routeMsgEl) routeMsgEl.textContent = t || "";
   }
-
   function escapeHtml(str) {
     return String(str ?? "")
       .replaceAll("&", "&amp;")
@@ -418,7 +417,10 @@
 
     if (!data || data.length === 0) {
       activeShipmentsCache = [];
+      window.activeShipmentsCache = activeShipmentsCache;
       if (listEl) listEl.innerHTML = "<small>Geen zendingen.</small>";
+      // auto reroute (leegt kaart)
+      if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
       return;
     }
 
@@ -429,10 +431,11 @@
       else active.push(s);
     }
 
+    // ✅ cache voor routeplanner
+    activeShipmentsCache = active;
     window.activeShipmentsCache = active;
-if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
-  }
 
+    // UI
     if (listEl) {
       if (active.length === 0) listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
       else for (const s of active) listEl.appendChild(renderShipmentCard(s));
@@ -443,13 +446,8 @@ if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
       else for (const s of archived) listArchivedEl.appendChild(renderShipmentCard(s));
     }
 
-    // ✅ auto reroute als checkbox aan staat
-    if (autoRouteEl?.checked) {
-      // route alleen berekenen als maps al klaar is
-      if (window.__dvkMapsReady) {
-        planOptimalRoute();
-      }
-    }
+    // ✅ auto reroute
+    if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
   }
 
   // ---------------- PDF Afleverbon
@@ -831,7 +829,6 @@ if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
   function initAutocomplete() {
     const pickupInput = document.getElementById("pickup_address");
     const deliveryInput = document.getElementById("delivery_address");
-
     if (!pickupInput && !deliveryInput) return;
 
     if (!window.google?.maps?.places?.Autocomplete) {
@@ -839,16 +836,11 @@ if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
       return;
     }
 
-    // GEEN types => bedrijven + adressen
-    const options = {
-      componentRestrictions: { country: "nl" },
-    };
+    const options = { componentRestrictions: { country: "nl" } };
 
     function buildAddressFromComponents(components) {
       if (!components?.length) return "";
-
-      const get = (type) =>
-        components.find((c) => c.types.includes(type))?.long_name || "";
+      const get = (type) => components.find((c) => c.types.includes(type))?.long_name || "";
 
       const route = get("route");
       const streetNumber = get("street_number");
@@ -857,39 +849,27 @@ if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
 
       const line1 = [route, streetNumber].filter(Boolean).join(" ");
       const line2 = [postalCode, locality].filter(Boolean).join(" ");
-
       return [line1, line2].filter(Boolean).join(", ");
     }
 
     function attach(input) {
       if (!input) return;
-
       input.setAttribute("autocomplete", "off");
 
       const ac = new google.maps.places.Autocomplete(input, options);
-
-      // fields
-      if (ac.setFields) {
-        ac.setFields(["formatted_address", "address_components", "name", "place_id"]);
-      }
+      if (ac.setFields) ac.setFields(["formatted_address", "address_components", "name", "place_id"]);
 
       ac.addListener("place_changed", () => {
         const place = ac.getPlace();
-
         let full = place?.formatted_address || buildAddressFromComponents(place?.address_components);
         const name = (place?.name || "").trim();
 
         if (name) {
           const lowerFull = (full || "").toLowerCase();
           const lowerName = name.toLowerCase();
-
-          if (full && !lowerFull.includes(lowerName)) {
-            input.value = `${name}, ${full}`;
-          } else if (full) {
-            input.value = full;
-          } else {
-            input.value = name;
-          }
+          if (full && !lowerFull.includes(lowerName)) input.value = `${name}, ${full}`;
+          else if (full) input.value = full;
+          else input.value = name;
         } else {
           if (full) input.value = full;
         }
@@ -901,341 +881,246 @@ if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
   }
 
   // ================= ROUTEPLANNER + MAP =================
-  let map;
-  let directionsService;
-  let directionsRenderer;
+  let map = null;
+  let directionsService = null;
+  let directionsRenderer = null;
 
   function clearRouteList() {
-    if (!routeListEl) return;
-    routeListEl.innerHTML = "";
+    if (routeListEl) routeListEl.innerHTML = "";
   }
 
-  function setRouteList(items) {
+  function renderRouteList(stops) {
     if (!routeListEl) return;
     routeListEl.innerHTML = "";
 
     const title = document.createElement("div");
-    title.innerHTML = "<b>Optimale volgorde:</b>";
+    title.style.fontWeight = "700";
+    title.style.marginBottom = "6px";
+    title.textContent = "Optimale volgorde:";
     routeListEl.appendChild(title);
 
-    items.forEach((t, idx) => {
+    stops.forEach((s, i) => {
       const row = document.createElement("div");
-      row.textContent = `${idx + 1}. ${t}`;
+      row.textContent = `${i + 1}. ${s.label}`;
       routeListEl.appendChild(row);
     });
   }
 
- // ================= ROUTEPLANNER (LOGISCH: pickup vóór delivery, eindigt nooit met pickup) =================
-
-const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
-
-const btnPlanRoute = document.getElementById("btnPlanRoute");
-const autoRouteEl = document.getElementById("autoRoute");
-const routeMsgEl = document.getElementById("routeMsg");
-const routeListEl = document.getElementById("routeList");
-const mapEl = document.getElementById("map");
-
-let map = null;
-let directionsService = null;
-let directionsRenderer = null;
-
-// Helper
-function setRouteMsg(t) {
-  if (routeMsgEl) routeMsgEl.textContent = t || "";
-}
-
-function clearRouteList() {
-  if (routeListEl) routeListEl.innerHTML = "";
-}
-
-function renderRouteList(stops) {
-  if (!routeListEl) return;
-  routeListEl.innerHTML = "";
-
-  const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.marginBottom = "6px";
-  title.textContent = "Optimale volgorde:";
-  routeListEl.appendChild(title);
-
-  stops.forEach((s, i) => {
-    const row = document.createElement("div");
-    row.textContent = `${i + 1}. ${s.label}`;
-    routeListEl.appendChild(row);
-  });
-}
-
-function buildStopsFromActiveShipments() {
-  // verwacht dat jij ergens al een cache hebt zoals activeShipmentsCache
-  // (in jouw code is die er al, want je routeplanner werkt).
-  const stops = [];
-
-  for (const s of (window.activeShipmentsCache || [])) {
-    // sla gearchiveerd over
-    if (s.archived_at) continue;
-
-    const p = (s.pickup_address || "").trim();
-    const d = (s.delivery_address || "").trim();
-    if (!p || !d) continue;
-
-    const pickId = `P:${s.id}`;
-    const delId  = `D:${s.id}`;
-
-    stops.push({
-      id: pickId,
-      shipmentId: s.id,
-      type: "pickup",
-      addr: p,
-      label: `Ophalen: ${p} (${s.track_code || ""})`,
-    });
-
-    stops.push({
-      id: delId,
-      shipmentId: s.id,
-      type: "delivery",
-      addr: d,
-      label: `Bezorgen: ${d} (${s.track_code || ""})`,
-    });
+  function ensureMapsReady() {
+    if (!window.google?.maps) throw new Error("Google Maps API niet geladen.");
   }
 
-  return stops;
-}
+  function ensureMapInit() {
+    ensureMapsReady();
 
-function ensureMapsReady() {
-  if (!window.google?.maps) {
-    throw new Error("Google Maps API niet geladen.");
+    if (!map && mapEl) {
+      map = new google.maps.Map(mapEl, {
+        zoom: 9,
+        center: { lat: 52.27, lng: 5.07 }, // Nigtevecht
+        mapTypeControl: true,
+      });
+    }
+
+    if (!directionsService) directionsService = new google.maps.DirectionsService();
+    if (!directionsRenderer && map) {
+      directionsRenderer = new google.maps.DirectionsRenderer({
+        map,
+        suppressMarkers: false,
+      });
+    }
   }
-}
 
-function ensureMapInit() {
-  ensureMapsReady();
+  function buildStopsFromActiveShipments() {
+    const stops = [];
 
-  if (!map && mapEl) {
-    map = new google.maps.Map(mapEl, {
-      zoom: 9,
-      center: { lat: 52.27, lng: 5.07 }, // regio Nigtevecht
-      mapTypeControl: true,
+    for (const s of (window.activeShipmentsCache || [])) {
+      if (s.archived_at) continue;
+
+      const p = (s.pickup_address || "").trim();
+      const d = (s.delivery_address || "").trim();
+      if (!p || !d) continue;
+
+      stops.push({
+        id: `P:${s.id}`,
+        shipmentId: s.id,
+        type: "pickup",
+        addr: p,
+        label: `Ophalen: ${p} (${s.track_code || ""})`,
+      });
+
+      stops.push({
+        id: `D:${s.id}`,
+        shipmentId: s.id,
+        type: "delivery",
+        addr: d,
+        label: `Bezorgen: ${d} (${s.track_code || ""})`,
+      });
+    }
+
+    return stops;
+  }
+
+  async function buildTimeMatrix(addresses) {
+    ensureMapsReady();
+    const svc = new google.maps.DistanceMatrixService();
+
+    return await new Promise((resolve, reject) => {
+      svc.getDistanceMatrix(
+        {
+          origins: addresses,
+          destinations: addresses,
+          travelMode: google.maps.TravelMode.DRIVING,
+          unitSystem: google.maps.UnitSystem.METRIC,
+        },
+        (res, status) => {
+          if (status !== "OK" || !res) return reject(new Error("DistanceMatrix fout: " + status));
+          resolve(res);
+        }
+      );
     });
   }
 
-  if (!directionsService) directionsService = new google.maps.DirectionsService();
-
-  if (!directionsRenderer && map) {
-    directionsRenderer = new google.maps.DirectionsRenderer({
-      map,
-      suppressMarkers: false,
-    });
+  function getDurationSeconds(matrix, i, j) {
+    const el = matrix?.rows?.[i]?.elements?.[j];
+    if (!el || el.status !== "OK") return Number.POSITIVE_INFINITY;
+    return el.duration?.value ?? Number.POSITIVE_INFINITY;
   }
-}
 
-// Bouw 1x een reistijdmatrix voor greedy keuze
-async function buildTimeMatrix(addresses) {
-  // addresses: [BASE, ...stopsAddrs]
-  ensureMapsReady();
-  const svc = new google.maps.DistanceMatrixService();
+  // Greedy met constraint: delivery pas na pickup + eindigt altijd met delivery
+  async function computeOrderedStopsGreedy(stops) {
+    if (!stops.length) return [];
 
-  // DistanceMatrix limieten: houd het praktisch klein (jij hebt meestal < 20 stops)
-  return await new Promise((resolve, reject) => {
-    svc.getDistanceMatrix(
-      {
-        origins: addresses,
-        destinations: addresses,
-        travelMode: google.maps.TravelMode.DRIVING,
-        unitSystem: google.maps.UnitSystem.METRIC,
-        avoidTolls: false,
-        avoidHighways: false,
-      },
-      (res, status) => {
-        if (status !== "OK" || !res) return reject(new Error("DistanceMatrix fout: " + status));
-        resolve(res);
+    const addrs = [BASE_ADDRESS, ...stops.map((s) => s.addr)];
+    const matrix = await buildTimeMatrix(addrs);
+
+    const donePickups = new Set(); // shipmentId
+    const remaining = new Map(); // id->stop
+    stops.forEach((s) => remaining.set(s.id, s));
+
+    let currentIndex = 0; // BASE
+    const ordered = [];
+
+    const idxOfStop = (stop) => 1 + stops.findIndex((x) => x.id === stop.id);
+
+    while (remaining.size > 0) {
+      const candidates = [];
+      for (const s of remaining.values()) {
+        if (s.type === "pickup") candidates.push(s);
+        if (s.type === "delivery" && donePickups.has(s.shipmentId)) candidates.push(s);
       }
-    );
-  });
-}
+      if (!candidates.length) {
+        // fallback (zou niet moeten)
+        for (const s of remaining.values()) candidates.push(s);
+      }
 
-function getDurationSeconds(matrix, i, j) {
-  const el = matrix?.rows?.[i]?.elements?.[j];
-  if (!el || el.status !== "OK") return Number.POSITIVE_INFINITY;
-  return el.duration?.value ?? Number.POSITIVE_INFINITY;
-}
+      let best = null;
+      let bestCost = Number.POSITIVE_INFINITY;
 
-// Greedy route met constraint: delivery pas na pickup
-async function computeOrderedStopsGreedy(stops) {
-  if (!stops.length) return [];
+      for (const c of candidates) {
+        const cIndex = idxOfStop(c);
+        const cost = getDurationSeconds(matrix, currentIndex, cIndex);
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = c;
+        }
+      }
 
-  // index mapping
-  const addrs = [BASE_ADDRESS, ...stops.map(s => s.addr)];
-  const matrix = await buildTimeMatrix(addrs);
+      ordered.push(best);
+      remaining.delete(best.id);
 
-  const donePickups = new Set();      // shipmentId waarvoor pickup gedaan is
-  const remaining = new Map();        // stopId -> stop
-  stops.forEach(s => remaining.set(s.id, s));
+      if (best.type === "pickup") donePickups.add(best.shipmentId);
 
-  let currentIndex = 0; // start bij BASE in matrix
-
-  const ordered = [];
-
-  while (remaining.size > 0) {
-    // Kandidaten: alle pickups + deliveries waarvan pickup al gedaan
-    const candidates = [];
-    for (const s of remaining.values()) {
-      if (s.type === "pickup") candidates.push(s);
-      if (s.type === "delivery" && donePickups.has(s.shipmentId)) candidates.push(s);
+      currentIndex = idxOfStop(best);
     }
 
-    // Safety: als er geen candidates zijn, zit data scheef -> break
-    if (!candidates.length) {
-      // fallback: gooi alles erin (maar in praktijk gebeurt dit niet)
-      for (const s of remaining.values()) candidates.push(s);
-    }
+    // Hard fix: laatste stop moet delivery zijn (als er deliveries bestaan)
+    if (ordered.length && ordered[ordered.length - 1].type !== "delivery") {
+      const lastDeliveryIdx = [...ordered]
+        .map((s, i) => ({ s, i }))
+        .reverse()
+        .find((x) => x.s.type === "delivery")?.i;
 
-    // Kies kandidaat met kleinste reistijd vanaf currentIndex
-    let best = null;
-    let bestCost = Number.POSITIVE_INFINITY;
-
-    for (const c of candidates) {
-      const cIndex = 1 + stops.findIndex(x => x.id === c.id); // matrix index
-      const cost = getDurationSeconds(matrix, currentIndex, cIndex);
-
-      if (cost < bestCost) {
-        bestCost = cost;
-        best = c;
+      if (lastDeliveryIdx != null) {
+        const del = ordered.splice(lastDeliveryIdx, 1)[0];
+        ordered.push(del);
       }
     }
 
-    // apply
-    ordered.push(best);
-    remaining.delete(best.id);
-
-    // mark pickup done
-    if (best.type === "pickup") donePickups.add(best.shipmentId);
-
-    // move current
-    currentIndex = 1 + stops.findIndex(x => x.id === best.id);
+    return ordered;
   }
 
-  // ✅ Garantie: laatste stop vóór terugkeer is een delivery (als er deliveries bestaan)
-  // (Normaal al zo, maar we forceren het even hard.)
-  const lastIsDelivery = ordered.length ? ordered[ordered.length - 1].type === "delivery" : true;
-  if (!lastIsDelivery) {
-    const lastDeliveryIdx = [...ordered].map((s,i)=>({s,i})).reverse().find(x=>x.s.type==="delivery")?.i;
-    if (lastDeliveryIdx != null) {
-      const del = ordered.splice(lastDeliveryIdx, 1)[0];
-      ordered.push(del);
-    }
-  }
-
-  return ordered;
-}
-
-async function drawRouteOnMap(orderedStops) {
-  ensureMapInit();
-
-  const waypoints = orderedStops.map(s => ({
-    location: s.addr,
-    stopover: true,
-  }));
-
-  // Belangrijk: optimizeWaypoints UIT, anders haalt Google jouw logica onderuit.
-  const req = {
-    origin: BASE_ADDRESS,
-    destination: BASE_ADDRESS,
-    waypoints,
-    optimizeWaypoints: false,
-    travelMode: google.maps.TravelMode.DRIVING,
-  };
-
-  return await new Promise((resolve, reject) => {
-    directionsService.route(req, (res, status) => {
-      if (status !== "OK" || !res) return reject(new Error("Directions fout: " + status));
-      directionsRenderer.setDirections(res);
-      resolve(res);
-    });
-  });
-}
-
-async function planOptimalRoute() {
-  try {
-    setRouteMsg("Route berekenen...");
-    clearRouteList();
-
-    const stops = buildStopsFromActiveShipments();
-
-    if (!stops.length) {
-      setRouteMsg("Geen actieve zendingen voor routeplanning.");
-      return;
-    }
-
-    const ordered = await computeOrderedStopsGreedy(stops);
-
-    // Laat in de lijst alleen de stops zien (zonder start/eind)
-    renderRouteList(ordered);
-
-    // teken op kaart
-    await drawRouteOnMap(ordered);
-
-    // bericht
-    setRouteMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
-  } catch (e) {
-    console.error(e);
-    setRouteMsg("Route fout: " + (e?.message || e));
-  }
-}
-
-// Button + auto recalculatie
-if (btnPlanRoute) {
-  btnPlanRoute.addEventListener("click", () => planOptimalRoute());
-}
-
-// Als jij realtime updates gebruikt: roep planOptimalRoute aan bij updates (als checkbox aan staat)
-async function maybeAutoRecalcRoute() {
-  if (!autoRouteEl?.checked) return;
-  // kleine debounce (voorkomt spam bij meerdere updates)
-  clearTimeout(window.__dvkRouteTimer);
-  window.__dvkRouteTimer = setTimeout(() => planOptimalRoute(), 400);
-}
-
-// Maak deze beschikbaar zodat je hem kunt aanroepen vanuit jouw realtime shipment refresh
-window.__dvkMaybeAutoRecalcRoute = maybeAutoRecalcRoute;
-
-// Callback van Google script
-window.initMaps = function () {
-  console.log("Google Maps geladen");
-  try {
+  async function drawRouteOnMap(orderedStops) {
     ensureMapInit();
-  } catch (e) {
-    console.error(e);
-  }
-}
 
-  // ✅ callback van Google Maps script (callback=initMaps)
+    const waypoints = orderedStops.map((s) => ({
+      location: s.addr,
+      stopover: true,
+    }));
+
+    const req = {
+      origin: BASE_ADDRESS,
+      destination: BASE_ADDRESS,
+      waypoints,
+      optimizeWaypoints: false, // anders sloopt Google de pickup/delivery volgorde
+      travelMode: google.maps.TravelMode.DRIVING,
+    };
+
+    return await new Promise((resolve, reject) => {
+      directionsService.route(req, (res, status) => {
+        if (status !== "OK" || !res) return reject(new Error("Directions fout: " + status));
+        directionsRenderer.setDirections(res);
+        resolve(res);
+      });
+    });
+  }
+
+  async function planOptimalRoute() {
+    try {
+      routeMsg("Route berekenen...");
+      clearRouteList();
+
+      const stops = buildStopsFromActiveShipments();
+      if (!stops.length) {
+        routeMsg("Geen actieve zendingen voor routeplanning.");
+        if (directionsRenderer) directionsRenderer.set("directions", null);
+        return;
+      }
+
+      const ordered = await computeOrderedStopsGreedy(stops);
+      renderRouteList(ordered);
+      await drawRouteOnMap(ordered);
+
+      routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
+    } catch (e) {
+      console.error(e);
+      routeMsg("Route fout: " + (e?.message || e));
+    }
+  }
+
+  // debounce auto reroute
+  function maybeAutoRecalcRoute() {
+    if (!autoRouteEl?.checked) return;
+    if (!window.__dvkMapsReady) return;
+
+    clearTimeout(window.__dvkRouteTimer);
+    window.__dvkRouteTimer = setTimeout(() => planOptimalRoute(), 400);
+  }
+  window.__dvkMaybeAutoRecalcRoute = maybeAutoRecalcRoute;
+
+  if (btnPlanRoute) btnPlanRoute.addEventListener("click", () => planOptimalRoute());
+
+  // Google Maps callback (callback=initMaps in HTML)
   window.initMaps = function () {
     try {
       console.log("Google Maps geladen");
       window.__dvkMapsReady = true;
 
-      // init map
-      if (mapEl) {
-        map = new google.maps.Map(mapEl, {
-          zoom: 9,
-          center: { lat: 52.27, lng: 5.07 }, // regio Nigtevecht
-        });
+      ensureMapInit();
+      initAutocomplete();
 
-        directionsService = new google.maps.DirectionsService();
-        directionsRenderer = new google.maps.DirectionsRenderer({
-          map,
-          suppressMarkers: false,
-        });
-
-        // Autocomplete pas starten als Places er is
-        initAutocomplete();
-
-        // Als auto-route aan staat, direct plannen (als er al zendingen geladen zijn)
-        if (autoRouteEl?.checked) {
-          planOptimalRoute();
-        }
-      } else {
-        console.warn("map element (#map) ontbreekt in HTML.");
+      // auto-route direct als aan
+      if (autoRouteEl?.checked) {
+        planOptimalRoute();
       }
     } catch (e) {
       console.error("initMaps error:", e);
@@ -1262,11 +1147,7 @@ window.initMaps = function () {
     const supabaseClient = await ensureClient();
     supabaseClient
       .channel("shipments_changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "shipments" },
-        () => loadShipments(currentUserId)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "shipments" }, () => loadShipments(currentUserId))
       .subscribe();
   })();
 })();
