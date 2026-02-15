@@ -725,6 +725,20 @@ async function createShipment() {
   } catch {}
 
   msg(`Aangemaakt: ${data.track_code}`);
+
+  // ✅ formulier leegmaken
+document.getElementById("customer_name").value = "";
+document.getElementById("pickup_address").value = "";
+document.getElementById("delivery_address").value = "";
+document.getElementById("colli_count").value = "1";
+document.getElementById("shipment_type").value = "doos";
+
+const other = document.getElementById("shipment_type_other");
+if (other) other.value = "";
+
+const otherWrap = document.getElementById("otherWrap");
+if (otherWrap) otherWrap.style.display = "none";
+  
   await loadShipments(currentUserId);
 }
 
