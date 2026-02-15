@@ -1,10 +1,12 @@
-// DVK Dashboard (Driver) - Clean & Working
+// DVK Dashboard (Driver) - Clean & Working (1 file)
+//
+// Features:
 // - Tabs Active/Archived
 // - Create shipment
 // - Status buttons: OPGEHAALD / ONDERWEG / PROBLEEM / AFGELEVERD
 // - Delivered modal with signature + photos upload
 // - Timeline via "shipment_events" (NO pickup_at columns needed)
-// - PDF afleverbon with logo + timeline + problem note
+// - PDF afleverbon with logo + signature + photos + timeline at bottom
 
 // ---------------- DOM
 const listEl = document.getElementById("list");
@@ -14,7 +16,7 @@ const tabArchived = document.getElementById("tabArchived");
 
 // Create form
 const createMsg = document.getElementById("createMsg");
-const typeEl = document.getElementById("shipment_type");
+const shipmentTypeEl = document.getElementById("shipment_type");
 const otherWrap = document.getElementById("otherWrap");
 
 // Delivered modal
@@ -94,9 +96,9 @@ if (logoutBtn) {
 }
 
 // ---------------- Type switch
-if (typeEl && otherWrap) {
-  typeEl.addEventListener("change", () => {
-    otherWrap.style.display = typeEl.value === "overig" ? "block" : "none";
+if (shipmentTypeEl && otherWrap) {
+  shipmentTypeEl.addEventListener("change", () => {
+    otherWrap.style.display = shipmentTypeEl.value === "overig" ? "block" : "none";
   });
 }
 
@@ -260,10 +262,21 @@ function fmt(dt) {
   }
 }
 
+function labelStatus(st) {
+  const map = {
+    AANGEMAAKT: "Aangemaakt",
+    OPGEHAALD: "Opgehaald",
+    ONDERWEG: "Onderweg",
+    AFGELEVERD: "Afgeleverd",
+    PROBLEEM: "Probleem",
+    GEARCHIVEERD: "Gearchiveerd",
+  };
+  return map[st] || (st || "-");
+}
+
 // ---------------- Timeline (shipment_events)
 async function addEvent(shipmentId, eventType, note = null) {
   const supabaseClient = await ensureClient();
-  // event_type voorbeelden: OPGEHAALD, ONDERWEG, AFGELEVERD, PROBLEEM
   const { error } = await supabaseClient
     .from("shipment_events")
     .insert({ shipment_id: shipmentId, event_type: eventType, note });
@@ -286,17 +299,14 @@ async function fetchEventsForShipment(shipmentId) {
   return data || [];
 }
 
-// ---------------- Update Status (WORKING)
+// ---------------- Update Status (robust: extra velden mogen ontbreken)
 async function updateStatus(shipment, newStatus, extra = {}, eventNote = null) {
   const supabaseClient = await ensureClient();
 
-  // 1) Update shipment.status (en optioneel extra velden)
-  //    -> Als extra kolom niet bestaat, proberen we opnieuw zonder extra zodat het niet crasht.
   let err = null;
-
   const payload = { status: newStatus, ...extra };
 
-  // Probeer met extra
+  // Probeer met extra velden
   const r1 = await supabaseClient
     .from("shipments")
     .update(payload)
@@ -305,7 +315,7 @@ async function updateStatus(shipment, newStatus, extra = {}, eventNote = null) {
 
   err = r1.error;
 
-  // Als error over "column not found" gaat: retry zonder extra (alleen status)
+  // Als kolom niet bestaat -> retry alleen status
   if (err && /column/i.test(err.message)) {
     const r2 = await supabaseClient
       .from("shipments")
@@ -321,14 +331,13 @@ async function updateStatus(shipment, newStatus, extra = {}, eventNote = null) {
     return;
   }
 
-  // 2) Schrijf event in tijdpad (shipment_events)
+  // Event in tijdpad
   try {
     await addEvent(shipment.id, newStatus, eventNote);
   } catch (e) {
     console.error("addEvent failed:", e);
   }
 
-  // 3) Refresh
   await loadShipments(currentUserId);
 }
 
@@ -414,93 +423,184 @@ async function loadShipments(driverId) {
   }
 }
 
+// ---------------- PDF Afleverbon (LOGO + Notitie onder bezorgadres + Handtekening onder ontvanger + Tijdpad onderaan)
 async function generateDeliveryPdf(s) {
   try {
     if (!window.jspdf || !window.jspdf.jsPDF) {
-      alert("jsPDF is niet geladen.");
+      alert("jsPDF is niet geladen. Controleer de CDN in dashboard.html.");
       return;
     }
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "mm", format: "a4" });
 
-    let y = 20; // startpositie
+    const bucket = "dvk-delivery";
+    const left = 20;
+    const right = 190;
 
-    // ===== Titel =====
+    let y = 14;
+
+    const ensureSpace = (need = 10) => {
+      if (y + need > 285) {
+        doc.addPage();
+        y = 14;
+      }
+    };
+
+    // ===== LOGO (fix: spatie in bestandsnaam -> %20)
+    // Pas dit pad aan als jouw logo anders heet/ergens anders staat.
+    try {
+      const logoUrl = "/DVK/images/DVK%20logo3.jpg";
+      const logoBytes = await fetchBytes(logoUrl);
+      const logoDataUrl = await bytesToDataUrl(logoBytes, "image/jpeg");
+      doc.addImage(logoDataUrl, "JPEG", left, 10, 45, 18);
+    } catch (e) {
+      console.log("Logo niet geladen:", e);
+    }
+
+    // ===== Titel
     doc.setFontSize(16);
-    doc.text("De Vechtse Koeriers (DVK)", 20, y);
-    y += 12;
+    doc.text("De Vechtse Koeriers (DVK)", left, 36);
+
+    y = 48;
+    doc.setDrawColor(0);
+    doc.line(left, y, right, y);
+    y += 10;
 
     doc.setFontSize(12);
 
-    // ===== Basisgegevens =====
-    doc.text(`Trackcode: ${s.track_code}`, 20, y); y += 8;
-    doc.text(`Klant: ${s.customer_name || "-"}`, 20, y); y += 8;
-    doc.text(`Type: ${s.shipment_type || "-"}`, 20, y); y += 8;
-    doc.text(`Colli: ${s.colli_count ?? "-"}`, 20, y); y += 8;
-    doc.text(`Status: ${s.status}`, 20, y); y += 12;
+    // ===== Basisgegevens
+    const typeText =
+      s.shipment_type === "overig"
+        ? (s.shipment_type_other || "overig")
+        : (s.shipment_type || "-");
 
-    // ===== Adressen =====
-    doc.text(`Ophaaladres: ${s.pickup_address || "-"}`, 20, y);
-    y += 8;
+    doc.text(`Trackcode: ${s.track_code || "-"}`, left, y); y += 8;
+    doc.text(`Klant: ${s.customer_name || "-"}`, left, y); y += 8;
+    doc.text(`Type: ${typeText}`, left, y); y += 8;
+    doc.text(`Colli: ${s.colli_count ?? "-"}`, left, y); y += 8;
+    doc.text(`Status: ${labelStatus(s.status)}`, left, y); y += 10;
 
-    doc.text(`Bezorgadres: ${s.delivery_address || "-"}`, 20, y);
-    y += 10;
+    // ===== Adressen
+    ensureSpace(20);
+    doc.text(`Ophaaladres: ${s.pickup_address || "-"}`, left, y); y += 8;
+    doc.text(`Bezorgadres: ${s.delivery_address || "-"}`, left, y); y += 10;
 
-    // ===== Notitie ONDER bezorgadres =====
-    doc.text(`Notitie: ${s.delivered_note || "-"}`, 20, y);
-    y += 15;
+    // ✅ Notitie onder bezorgadres (met ruimte)
+    doc.text(`Notitie: ${s.delivered_note || "-"}`, left, y); y += 12;
 
-    // ===== Ontvanger =====
-    doc.text(`Ontvanger: ${s.receiver_name || "-"}`, 20, y);
-    y += 10;
+    // ===== Ontvanger
+    doc.text(`Ontvanger: ${s.receiver_name || "-"}`, left, y); y += 10;
 
-    // ===== Handtekening ONDER ontvanger =====
-    doc.text("Handtekening:", 20, y);
-    y += 5;
+    // ✅ Handtekening onder ontvanger
+    doc.text("Handtekening:", left, y); y += 4;
 
-    if (s.signature_data_url) {
-      doc.addImage(s.signature_data_url, "PNG", 20, y, 60, 25);
-      y += 30;
+    if (s.signature_path) {
+      try {
+        const sigUrl = await getSignedUrl(bucket, s.signature_path, 300);
+        const sigBytes = await fetchBytes(sigUrl);
+        const sigDataUrl = await bytesToDataUrl(sigBytes, "image/png");
+        ensureSpace(35);
+        doc.addImage(sigDataUrl, "PNG", left, y, 70, 25);
+        y += 30;
+      } catch (e) {
+        console.log("Handtekening laden mislukt:", e);
+        y += 10;
+      }
     } else {
-      y += 20;
+      y += 10;
     }
 
-    y += 10;
+    // (optioneel) Foto’s
+    const photoPaths = [s.photo1_path, s.photo2_path].filter(Boolean);
+    if (photoPaths.length) {
+      ensureSpace(10);
+      doc.setFontSize(12);
+      doc.text("Foto’s:", left, y);
+      y += 6;
 
-    // ===== Tijdpad helemaal onderaan =====
+      const imgW = 80;
+      const imgH = 55;
+      const gap = 6;
+
+      for (let i = 0; i < photoPaths.length; i++) {
+        const p = photoPaths[i];
+        try {
+          const url = await getSignedUrl(bucket, p, 300);
+          const bytes = await fetchBytes(url);
+
+          // We proberen JPEG, en als dat faalt PNG.
+          let dataUrl = null;
+          try {
+            dataUrl = await bytesToDataUrl(bytes, "image/jpeg");
+            ensureSpace(imgH + 10);
+            const x = left + (i % 2) * (imgW + gap);
+            doc.addImage(dataUrl, "JPEG", x, y, imgW, imgH);
+          } catch {
+            dataUrl = await bytesToDataUrl(bytes, "image/png");
+            ensureSpace(imgH + 10);
+            const x = left + (i % 2) * (imgW + gap);
+            doc.addImage(dataUrl, "PNG", x, y, imgW, imgH);
+          }
+
+          if (i % 2 === 1) y += imgH + 8;
+        } catch (e) {
+          console.log("Foto laden mislukt:", e);
+        }
+      }
+      if (photoPaths.length % 2 === 1) y += imgH + 8;
+    }
+
+    // ===== Tijdpad helemaal onderaan (shipment_events)
+    // We zetten tijdpad als LAATSTE blok; als er geen ruimte is -> nieuwe pagina.
+    const events = await fetchEventsForShipment(s.id);
+
+    // reken ruimte: titel + regels
+    const estimated = 14 + (events.length ? events.length * 7 : 10);
+    if (y + estimated > 285) {
+      doc.addPage();
+      y = 18;
+    }
+
     doc.setFontSize(14);
-    doc.text("Tijdpad", 20, y);
+    doc.text("Tijdpad", left, y);
     y += 10;
 
-    doc.setFontSize(12);
+    doc.setFontSize(11);
 
-    if (s.pickup_at) {
-      doc.text(`Opgehaald: ${new Date(s.pickup_at).toLocaleString("nl-NL")}`, 20, y);
+    if (!events || events.length === 0) {
+      doc.text("Nog geen updates beschikbaar.", left, y);
       y += 8;
+    } else {
+      for (const ev of events) {
+        const when = fmt(ev.created_at);
+        const kind = labelStatus(ev.event_type);
+
+        // Regel
+        doc.text(`${kind}: ${when}`, left, y);
+        y += 7;
+
+        // Probleem note (als aanwezig)
+        if (ev.event_type === "PROBLEEM" && ev.note) {
+          const lines = doc.splitTextToSize(`Probleem: ${ev.note}`, 170);
+          for (const ln of lines) {
+            ensureSpace(7);
+            doc.text(ln, left + 4, y);
+            y += 6;
+          }
+          y += 2;
+        }
+
+        ensureSpace(7);
+      }
     }
 
-    if (s.on_the_way_at) {
-      doc.text(`Onderweg: ${new Date(s.on_the_way_at).toLocaleString("nl-NL")}`, 20, y);
-      y += 8;
-    }
-
-    if (s.delivered_at) {
-      doc.text(`Afgeleverd: ${new Date(s.delivered_at).toLocaleString("nl-NL")}`, 20, y);
-      y += 8;
-    }
-
-    if (s.problem_note) {
-      y += 5;
-      doc.text(`Probleem: ${s.problem_note}`, 20, y);
-    }
-
-    // ===== Opslaan =====
-    doc.save(`Afleverbon-${s.track_code}.pdf`);
-
+    // Opslaan
+    const safeCode = (s.track_code || "afleverbon").replace(/[^a-z0-9]/gi, "_");
+    doc.save(`Afleverbon-${safeCode}.pdf`);
   } catch (err) {
     console.error(err);
-    alert("PDF maken mislukt: " + err.message);
+    alert("PDF maken mislukt: " + (err?.message || err));
   }
 }
 
@@ -543,6 +643,7 @@ function renderShipmentCard(s) {
   if (!s.archived_at) {
     actions.append(button("Verwijderen", async () => deleteShipment(s)));
 
+    // Archiveer pas als afgeleverd
     if (s.status === "AFGELEVERD") {
       actions.append(
         button("Archiveer", async () => {
@@ -559,8 +660,7 @@ function renderShipmentCard(s) {
         const note = prompt("Wat is het probleem?");
         if (!note) return;
 
-        // status PROBLEEM + event note opslaan
-        // extra (problem_note) proberen we mee te geven, maar als kolom niet bestaat crasht het niet
+        // status PROBLEEM + event note
         await updateStatus(s, "PROBLEEM", { problem_note: note }, note);
       }),
       button("Afgeleverd", () => openDeliveredModal(s))
@@ -609,7 +709,7 @@ async function createShipment() {
       shipment_type,
       shipment_type_other: shipment_type === "overig" ? shipment_type_other : null,
       colli_count,
-      status: "AANGEMAAKT"
+      status: "AANGEMAAKT",
     })
     .select("*")
     .single();
@@ -618,6 +718,11 @@ async function createShipment() {
     msg("Fout: " + error.message);
     return;
   }
+
+  // Event: aangemaakt (optioneel)
+  try {
+    await addEvent(data.id, "AANGEMAAKT", null);
+  } catch {}
 
   msg(`Aangemaakt: ${data.track_code}`);
   await loadShipments(currentUserId);
@@ -649,10 +754,12 @@ if (modalConfirm) {
       const track = currentDeliveryShipment.track_code;
       const base = `${currentUserId}/${track}`;
 
+      // Signature upload
       const sigBlob = await canvasToBlob(sigCanvas);
       const sigPath = `${base}/signature.png`;
       await uploadFile(bucket, sigPath, sigBlob, "image/png");
 
+      // Photos upload (optioneel)
       let p1 = null, p2 = null;
 
       if (photo1?.files && photo1.files[0]) {
@@ -676,9 +783,9 @@ if (modalConfirm) {
           delivered_note: note,
           signature_path: sigPath,
           photo1_path: p1,
-          photo2_path: p2
+          photo2_path: p2,
         },
-        note // eventNote
+        note // eventNote (komt in shipment_events)
       );
 
       closeDeliveredModal();
