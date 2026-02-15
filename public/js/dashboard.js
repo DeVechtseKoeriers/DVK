@@ -823,6 +823,29 @@ if (modalConfirm) {
   });
 }
 
+// ================= AUTOCOMPLETE =================
+
+function initAutocomplete() {
+  const pickupInput = document.getElementById("pickup_address");
+  const deliveryInput = document.getElementById("delivery_address");
+
+  if (pickupInput && google?.maps?.places) {
+    new google.maps.places.Autocomplete(pickupInput, {
+      types: ["address"],
+      componentRestrictions: { country: "nl" }
+    });
+  }
+
+  if (deliveryInput && google?.maps?.places) {
+    new google.maps.places.Autocomplete(deliveryInput, {
+      types: ["address"],
+      componentRestrictions: { country: "nl" }
+    });
+  }
+}
+
+window.addEventListener("load", initAutocomplete);
+
 // ---------------- INIT
 (async () => {
   const user = await requireAuth();
