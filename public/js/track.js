@@ -1,9 +1,11 @@
-// DVK Track & Trace (Customer) - Clean & Working
-// - Lookup via RPC: dvk_track_lookup (anon veilig)
-// - Toon ontvanger + opmerking (receiver_name + delivered_note)
-// - Toon afleverbon melding alleen bij AFGELEVERD of GEARCHIVEERD
-// - Realtime updates (shipments + shipment_events) zonder refresh
+// DVK Track & Trace (Klant)
+// - Haalt data op via RPC: dvk_track_lookup(p_code)
+// - Toont ontvanger + opmerking
+// - Dedupe tijdpad (geen dubbele "Aangemaakt")
+// - Live updates zonder refresh (Realtime op shipments + shipment_events, gefilterd op shipment_id)
+// - Toont melding "Afleverbon opvraagbaar..." alleen bij AFGELEVERD/GEARCHIVEERD (of archived_at)
 
+// ---------------- DOM
 const codeEl = document.getElementById("code");
 const btnEl = document.getElementById("btn");
 const msgEl = document.getElementById("msg");
@@ -15,18 +17,21 @@ const pickupEl = document.getElementById("pickup");
 const deliveryEl = document.getElementById("delivery");
 const typeEl = document.getElementById("type");
 const colliEl = document.getElementById("colli");
-
 const receiverEl = document.getElementById("receiver");
 const noteEl = document.getElementById("note");
-
 const timelineEl = document.getElementById("timeline");
 const liveEl = document.getElementById("live");
 
-const afterCard = document.getElementById("afterDeliveryCard");
-const afterText = document.getElementById("afterDeliveryText");
+// Extra blok (die heb jij in index.html toegevoegd)
+const afterCardEl = document.getElementById("afterDeliveryCard");
+const afterTextEl = document.getElementById("afterDeliveryText");
 
-let channel = null;
+// ---------------- STATE
+let currentShipmentId = null;
+let channelShipments = null;
+let channelEvents = null;
 
+// ---------------- Helpers
 function setMsg(text, kind = "muted") {
   if (!msgEl) return;
   msgEl.className = kind === "err" ? "err" : kind === "ok" ? "ok" : "muted";
@@ -55,67 +60,94 @@ function labelStatus(s) {
 }
 
 async function ensureClient() {
-  if (!window.supabaseClient) throw new Error("supabaseClient ontbreekt (supabase-config.js)");
+  if (!window.supabaseClient) {
+    throw new Error("supabaseClient ontbreekt (controleer supabase-config.js)");
+  }
   return window.supabaseClient;
 }
 
-// ---------- Render shipment
+// ---------------- Data ophalen (RPC)
+async function fetchByCode(trackCode) {
+  const supabaseClient = await ensureClient();
+  const { data, error } = await supabaseClient.rpc("dvk_track_lookup", { p_code: trackCode });
+  if (error) throw error;
+  return data; // { shipment: {...}, events: [...] } of null
+}
+
+// ---------------- Render shipment
 function renderShipment(sh) {
   if (!resultEl) return;
+
   resultEl.style.display = "block";
 
-  if (trackcodeEl) trackcodeEl.textContent = sh.track_code || "";
-  if (statusEl) statusEl.textContent = labelStatus(sh.status);
+  trackcodeEl.textContent = sh.track_code || "";
+  statusEl.textContent = labelStatus(sh.status);
 
-  if (pickupEl) pickupEl.textContent = sh.pickup_address || "-";
-  if (deliveryEl) deliveryEl.textContent = sh.delivery_address || "-";
+  pickupEl.textContent = sh.pickup_address || "-";
+  deliveryEl.textContent = sh.delivery_address || "-";
 
   const t =
     sh.shipment_type === "overig"
       ? (sh.shipment_type_other || "overig")
       : (sh.shipment_type || "-");
-  if (typeEl) typeEl.textContent = t;
+  typeEl.textContent = t;
 
-  if (colliEl) colliEl.textContent = (sh.colli_count ?? "-");
+  colliEl.textContent = (sh.colli_count ?? "-");
 
-  // ✅ Ontvanger + Opmerking tonen
-  if (receiverEl) receiverEl.textContent = sh.receiver_name || "-";
-  if (noteEl) noteEl.textContent = sh.delivered_note || "-";
+  // ✅ Ontvanger + opmerking (alleen ingevuld na afleveren)
+  receiverEl.textContent = sh.receiver_name || "-";
+  noteEl.textContent = sh.delivered_note || "-";
 
-  // ✅ Afleverbon melding alleen bij AFGELEVERD of GEARCHIVEERD
-  const showAfter = sh.status === "AFGELEVERD" || sh.status === "GEARCHIVEERD" || !!sh.archived_at;
-  if (afterCard) afterCard.style.display = showAfter ? "block" : "none";
-  if (afterText && showAfter) {
-    afterText.innerHTML = `
-      Afleverbon is opvraagbaar bij <b>De Vechtse Koeriers</b>.<br/>
-      Eventuele afleverfoto’s zijn op verzoek beschikbaar.
-    `;
-  }
+  // ✅ Afleverbon melding alleen bij AFGELEVERD/GEARCHIVEERD (of archived_at)
+  const showAfter =
+    sh.status === "AFGELEVERD" ||
+    sh.status === "GEARCHIVEERD" ||
+    !!sh.archived_at;
 
-  // Live label
-  if (liveEl) {
-    liveEl.textContent = "Live updates actief";
+  if (afterCardEl) afterCardEl.style.display = showAfter ? "block" : "none";
+  if (afterTextEl) {
+    afterTextEl.innerHTML = `Afleverbon en eventuele afleverfoto’s zijn op verzoek opvraagbaar bij <b>De Vechtse Koeriers</b>.`;
   }
 }
 
+// ---------------- Timeline (dedupe)
+function dedupeEvents(events) {
+  // 1) als er een unieke id is -> daarop dedupen
+  const hasId = events?.some(e => e && e.id != null);
+
+  const seen = new Set();
+  const out = [];
+
+  for (const ev of (events || [])) {
+    if (!ev) continue;
+
+    const key = hasId
+      ? `id:${ev.id}`
+      : `${ev.event_type || ""}__${ev.created_at || ""}__${ev.note || ""}`;
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ev);
+  }
+
+  // sort: oud -> nieuw
+  out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  return out;
+}
+
 function renderTimeline(events) {
+  if (!timelineEl) return;
+
   timelineEl.innerHTML = "";
-  if (!events || events.length === 0) {
+
+  const cleaned = dedupeEvents(events);
+
+  if (!cleaned || cleaned.length === 0) {
     timelineEl.innerHTML = `<div class="muted">Nog geen updates beschikbaar.</div>`;
     return;
   }
 
-  // ✅ Dedupliceren (zelfde event_type + zelfde created_at)
-  const seen = new Set();
-  const clean = [];
-  for (const ev of events) {
-    const key = `${ev.event_type || ""}|${ev.created_at || ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    clean.push(ev);
-  }
-
-  for (const ev of clean) {
+  for (const ev of cleaned) {
     const div = document.createElement("div");
     div.className = "ev";
 
@@ -131,78 +163,83 @@ function renderTimeline(events) {
   }
 }
 
-// ---------- RPC call (anon veilig)
-async function fetchByCode(trackCode) {
+// ---------------- Live updates (Realtime)
+async function setupRealtime(shipmentId, trackCode) {
   const supabaseClient = await ensureClient();
-  const { data, error } = await supabaseClient.rpc("dvk_track_lookup", { p_code: trackCode });
-  if (error) throw error;
-  return data; // { shipment: {...}, events: [...] } of null
+
+  // Oude channels netjes weg
+  try {
+    if (channelShipments) supabaseClient.removeChannel(channelShipments);
+    if (channelEvents) supabaseClient.removeChannel(channelEvents);
+  } catch {}
+  channelShipments = null;
+  channelEvents = null;
+
+  if (liveEl) liveEl.textContent = "Live updates actief";
+
+  // Filter alleen deze zending
+  channelShipments = supabaseClient
+    .channel(`track_ship_${trackCode}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "shipments", filter: `id=eq.${shipmentId}` },
+      async () => {
+        try {
+          const data = await fetchByCode(trackCode);
+          if (data?.shipment) renderShipment(data.shipment);
+          if (data?.events) renderTimeline(data.events);
+        } catch (e) {
+          // stil falen
+        }
+      }
+    )
+    .subscribe();
+
+  channelEvents = supabaseClient
+    .channel(`track_ev_${trackCode}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "shipment_events", filter: `shipment_id=eq.${shipmentId}` },
+      async () => {
+        try {
+          const data = await fetchByCode(trackCode);
+          if (data?.shipment) renderShipment(data.shipment);
+          if (data?.events) renderTimeline(data.events);
+        } catch (e) {
+          // stil falen
+        }
+      }
+    )
+    .subscribe();
 }
 
-// ---------- Load and render
+// ---------------- Load flow
 async function load(trackCode) {
   setMsg("Zoeken...", "muted");
   if (resultEl) resultEl.style.display = "none";
+  currentShipmentId = null;
 
   const data = await fetchByCode(trackCode);
 
   if (!data || !data.shipment) {
     setMsg("Geen zending gevonden voor deze trackcode.", "err");
     if (liveEl) liveEl.textContent = "";
+    if (afterCardEl) afterCardEl.style.display = "none";
     return;
   }
 
   setMsg("Gevonden ✅", "ok");
+
   renderShipment(data.shipment);
   renderTimeline(data.events || []);
 
-  await setupRealtime(trackCode);
+  currentShipmentId = data.shipment.id;
+
+  // ✅ realtime aanzetten
+  await setupRealtime(currentShipmentId, trackCode);
 }
 
-// ---------- Realtime (zonder refresh)
-async function setupRealtime(trackCode) {
-  const supabaseClient = await ensureClient();
-
-  // oude channel weg
-  if (channel) {
-    supabaseClient.removeChannel(channel);
-    channel = null;
-  }
-
-  // ✅ Filter op track_code zodat niet elke wijziging in heel de DB triggert
-  channel = supabaseClient
-    .channel("track_live_" + trackCode)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "shipments", filter: `track_code=eq.${trackCode}` },
-      async () => {
-        try {
-          const data = await fetchByCode(trackCode);
-          if (data?.shipment) renderShipment(data.shipment);
-        } catch {}
-      }
-    )
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "shipment_events" },
-      async () => {
-        // shipment_events heeft geen track_code; we herladen veilig via RPC
-        try {
-          const data = await fetchByCode(trackCode);
-          if (data?.events) renderTimeline(data.events);
-          if (data?.shipment) renderShipment(data.shipment);
-        } catch {}
-      }
-    )
-    .subscribe((status) => {
-      if (liveEl) {
-        liveEl.textContent =
-          status === "SUBSCRIBED" ? "Live updates actief" : "Live updates verbinden...";
-      }
-    });
-}
-
-// ---------- UI events
+// ---------------- UI events
 if (btnEl) {
   btnEl.addEventListener("click", async () => {
     const code = (codeEl?.value || "").trim();
@@ -213,7 +250,6 @@ if (btnEl) {
     } catch (e) {
       console.error(e);
       setMsg("Fout bij ophalen: " + (e?.message || e), "err");
-      if (liveEl) liveEl.textContent = "";
     }
   });
 }
