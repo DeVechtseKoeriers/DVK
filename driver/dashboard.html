@@ -144,15 +144,15 @@
   <!-- Scripts onderaan, vaste volgorde -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-
   <script src="/DVK/public/js/supabase-config.js?v=11"></script>
 
-  <!-- Jouw app-code moet initMaps op window zetten -->
-  <script src="/DVK/public/js/dashboard.js?v=11"></script>
+  <!-- Jouw app-code (moet window.initMaps definiëren) -->
+  <script src="/DVK/public/js/dashboard.js?v=12"></script>
 
-  <!-- Google Maps als laatste, ZONDER async (defer is genoeg) -->
+  <!-- Google Maps als laatste -->
   <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDXE-jkOXsKxIdyXarrbBsA3ut_C3nvWMI&libraries=places&callback=initMaps"
+    async
     defer
   ></script>
 </body>
