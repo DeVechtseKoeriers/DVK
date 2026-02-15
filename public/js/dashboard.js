@@ -830,19 +830,19 @@ function initAutocomplete() {
   const deliveryInput = document.getElementById("delivery_address");
 
   const options = {
-    types: ["geocode"], // adressen + bedrijven
     componentRestrictions: { country: "nl" }
   };
 
   if (pickupInput && google?.maps?.places) {
+    pickupInput.setAttribute("autocomplete", "off");
     new google.maps.places.Autocomplete(pickupInput, options);
   }
 
   if (deliveryInput && google?.maps?.places) {
+    deliveryInput.setAttribute("autocomplete", "off");
     new google.maps.places.Autocomplete(deliveryInput, options);
   }
 }
-
 window.addEventListener("load", initAutocomplete);
 
 // ---------------- INIT
