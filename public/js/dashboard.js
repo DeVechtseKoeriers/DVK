@@ -905,11 +905,11 @@ function initAutocomplete() {
 }
 window.addEventListener("load", initAutocomplete);
 
-function initMaps() {
+window.initMaps = function () {
   console.log("Google Maps geladen");
-
+  
   // hier komt straks route logic
-}
+};
 
 // ---------------- INIT
 (async () => {
