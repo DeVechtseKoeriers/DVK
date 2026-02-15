@@ -17,7 +17,6 @@ const pickupEl = document.getElementById("pickup");
 const deliveryEl = document.getElementById("delivery");
 const typeEl = document.getElementById("type");
 const colliEl = document.getElementById("colli");
-const receiverEl = document.getElementById("receiver");
 const noteEl = document.getElementById("note");
 const timelineEl = document.getElementById("timeline");
 const liveEl = document.getElementById("live");
@@ -95,7 +94,6 @@ function renderShipment(sh) {
   colliEl.textContent = (sh.colli_count ?? "-");
 
   // ✅ Ontvanger + opmerking (alleen ingevuld na afleveren)
-  receiverEl.textContent = sh.receiver_name || "-";
   noteEl.textContent = sh.delivered_note || "-";
 
   // ✅ Afleverbon melding alleen bij AFGELEVERD/GEARCHIVEERD (of archived_at)
