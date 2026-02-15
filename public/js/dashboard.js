@@ -414,166 +414,93 @@ async function loadShipments(driverId) {
   }
 }
 
-// ---------------- PDF Afleverbon
 async function generateDeliveryPdf(s) {
-  const shipment = s;
-
   try {
     if (!window.jspdf || !window.jspdf.jsPDF) {
-      alert("jsPDF is niet geladen. Controleer dat de jsPDF CDN in dashboard.html staat.");
+      alert("jsPDF is niet geladen.");
       return;
     }
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "mm", format: "a4" });
 
-    const left = 14;
+    let y = 20; // startpositie
 
-    // Logo linksboven
-    // LET OP: jouw bestandsnaam bevat spatie -> URL moet %20
-    // File staat bij jou in: DVK/images/DVK logo3.jpg
-    try {
-      const logoUrl = "/DVK/images/DVK%20logo3.jpg";
-      const logoBytes = await fetchBytes(logoUrl);
-      const logoDataUrl = await bytesToDataUrl(logoBytes, "image/jpeg");
-      doc.addImage(logoDataUrl, "JPEG", left, 10, 55, 25);
-    } catch (e) {
-      console.log("Logo niet geladen:", e);
-    }
+    // ===== Titel =====
+    doc.setFontSize(16);
+    doc.text("De Vechtse Koeriers (DVK)", 20, y);
+    y += 12;
 
-    // Titel rechts
-    doc.setFontSize(18);
-    doc.text("AFLEVERBON", 196, 20, { align: "right" });
+    doc.setFontSize(12);
 
-    // Lijn en tekst netjes eronder
-    doc.setDrawColor(0);
-    doc.line(left, 38, 196, 38);
+    // ===== Basisgegevens =====
+    doc.text(`Trackcode: ${s.track_code}`, 20, y); y += 8;
+    doc.text(`Klant: ${s.customer_name || "-"}`, 20, y); y += 8;
+    doc.text(`Type: ${s.shipment_type || "-"}`, 20, y); y += 8;
+    doc.text(`Colli: ${s.colli_count ?? "-"}`, 20, y); y += 8;
+    doc.text(`Status: ${s.status}`, 20, y); y += 12;
 
-    doc.setFontSize(10);
-    doc.text("De Vechtse Koeriers (DVK)", left, 44);
+    // ===== Adressen =====
+    doc.text(`Ophaaladres: ${s.pickup_address || "-"}`, 20, y);
+    y += 8;
 
-    let y = 55;
+    doc.text(`Bezorgadres: ${s.delivery_address || "-"}`, 20, y);
+    y += 10;
 
-    // Basis info
-    doc.setFontSize(11);
-    doc.text(`Trackcode: ${shipment.track_code || ""}`, left, y); y += 7;
-    doc.text(`Klant: ${shipment.customer_name || ""}`, left, y); y += 7;
+    // ===== Notitie ONDER bezorgadres =====
+    doc.text(`Notitie: ${s.delivered_note || "-"}`, 20, y);
+    y += 15;
 
-    const typeText =
-      shipment.shipment_type === "overig"
-        ? (shipment.shipment_type_other || "overig")
-        : (shipment.shipment_type || "");
+    // ===== Ontvanger =====
+    doc.text(`Ontvanger: ${s.receiver_name || "-"}`, 20, y);
+    y += 10;
 
-    doc.text(`Type: ${typeText}`, left, y); y += 7;
-    doc.text(`Colli: ${shipment.colli_count ?? ""}`, left, y); y += 7;
-    doc.text(`Status: ${shipment.status || ""}`, left, y); y += 7;
+    // ===== Handtekening ONDER ontvanger =====
+    doc.text("Handtekening:", 20, y);
+    y += 5;
 
-    y += 2;
-    doc.setFontSize(10);
-    doc.text(`Ophaaladres: ${shipment.pickup_address || ""}`, left, y, { maxWidth: 180 }); y += 8;
-    doc.text(`Bezorgadres: ${shipment.delivery_address || ""}`, left, y, { maxWidth: 180 }); y += 10;
-
-    doc.setFontSize(11);
-    doc.text(`Ontvanger: ${shipment.receiver_name || "-"}`, left, y); y += 7;
-    doc.text(`Notitie: ${shipment.delivered_note || "-"}`, left, y, { maxWidth: 180 }); y += 10;
-
-    // Tijdpad (uit shipment_events)
-    const events = await fetchEventsForShipment(shipment.id);
-
-    doc.setFontSize(13);
-    doc.text("Tijdpad", left, y); y += 8;
-
-    doc.setFontSize(10);
-
-    const findFirst = (t) => events.find(e => e.event_type === t);
-    const pickupEv = findFirst("OPGEHAALD");
-    const routeEv = findFirst("ONDERWEG");
-    const deliveredEv = findFirst("AFGELEVERD");
-    const problemEv = findFirst("PROBLEEM");
-
-    if (pickupEv) { doc.text(`Opgehaald: ${fmt(pickupEv.created_at)}`, left, y); y += 6; }
-    if (routeEv) { doc.text(`Onderweg: ${fmt(routeEv.created_at)}`, left, y); y += 6; }
-    if (deliveredEv) { doc.text(`Afgeleverd: ${fmt(deliveredEv.created_at)}`, left, y); y += 6; }
-
-    if (problemEv) {
-      y += 4;
-      doc.text(`Probleem gemeld: ${fmt(problemEv.created_at)}`, left, y); y += 6;
-      doc.text(problemEv.note || "-", left, y, { maxWidth: 180 });
-      y += 10;
-    } else if (shipment.problem_note) {
-      // fallback als je problem_note wel in shipments hebt
-      y += 4;
-      doc.text("Probleem gemeld:", left, y); y += 6;
-      doc.text(shipment.problem_note, left, y, { maxWidth: 180 });
-      y += 10;
-    }
-
-    // Handtekening + foto’s (Supabase Storage)
-    const bucket = "dvk-delivery";
-
-    // Handtekening
-    if (shipment.signature_path) {
-      doc.setFontSize(11);
-      doc.text("Handtekening:", left, y); y += 4;
-
-      try {
-        const sigUrl = await getSignedUrl(bucket, shipment.signature_path, 300);
-        const sigBytes = await fetchBytes(sigUrl);
-        const sigDataUrl = await bytesToDataUrl(sigBytes, "image/png");
-        doc.addImage(sigDataUrl, "PNG", left, y, 80, 30);
-        y += 36;
-      } catch (e) {
-        doc.setFontSize(10);
-        doc.text("Handtekening: (laden mislukt)", left, y); y += 8;
-      }
+    if (s.signature_data_url) {
+      doc.addImage(s.signature_data_url, "PNG", 20, y, 60, 25);
+      y += 30;
     } else {
-      doc.setFontSize(10);
-      doc.text("Handtekening: -", left, y); y += 8;
+      y += 20;
     }
 
-    // Foto’s (max 2)
-    const photoPaths = [shipment.photo1_path, shipment.photo2_path].filter(Boolean);
-    if (photoPaths.length) {
-      doc.setFontSize(11);
-      doc.text("Foto’s:", left, y); y += 4;
+    y += 10;
 
-      const imgW = 80;
-      const imgH = 55;
-      const gap = 6;
+    // ===== Tijdpad helemaal onderaan =====
+    doc.setFontSize(14);
+    doc.text("Tijdpad", 20, y);
+    y += 10;
 
-      for (let i = 0; i < photoPaths.length; i++) {
-        const p = photoPaths[i];
-        try {
-          const url = await getSignedUrl(bucket, p, 300);
-          const bytes = await fetchBytes(url);
-          const dataUrl = await bytesToDataUrl(bytes, "image/jpeg");
+    doc.setFontSize(12);
 
-          const x = left + (i % 2) * (imgW + gap);
-          doc.addImage(dataUrl, "JPEG", x, y, imgW, imgH);
-
-          if (i % 2 === 1) y += imgH + 6;
-        } catch (e) {
-          // skip
-        }
-      }
-      if (photoPaths.length % 2 === 1) y += imgH + 6;
+    if (s.pickup_at) {
+      doc.text(`Opgehaald: ${new Date(s.pickup_at).toLocaleString("nl-NL")}`, 20, y);
+      y += 8;
     }
 
-    // Footer midden onder
-    doc.setFontSize(9);
-    doc.text(
-      "Voor vragen over deze levering kunt u contact opnemen met De Vechtse Koeriers.",
-      105,
-      285,
-      { align: "center" }
-    );
+    if (s.on_the_way_at) {
+      doc.text(`Onderweg: ${new Date(s.on_the_way_at).toLocaleString("nl-NL")}`, 20, y);
+      y += 8;
+    }
 
-    const safeCode = (shipment.track_code || "afleverbon").replace(/[^a-z0-9]/gi, "_");
-    doc.save(`Afleverbon-${safeCode}.pdf`);
+    if (s.delivered_at) {
+      doc.text(`Afgeleverd: ${new Date(s.delivered_at).toLocaleString("nl-NL")}`, 20, y);
+      y += 8;
+    }
+
+    if (s.problem_note) {
+      y += 5;
+      doc.text(`Probleem: ${s.problem_note}`, 20, y);
+    }
+
+    // ===== Opslaan =====
+    doc.save(`Afleverbon-${s.track_code}.pdf`);
 
   } catch (err) {
     console.error(err);
-    alert("PDF maken mislukt: " + (err?.message || err));
+    alert("PDF maken mislukt: " + err.message);
   }
 }
 
