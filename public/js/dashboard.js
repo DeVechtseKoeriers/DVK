@@ -829,18 +829,17 @@ function initAutocomplete() {
   const pickupInput = document.getElementById("pickup_address");
   const deliveryInput = document.getElementById("delivery_address");
 
+  const options = {
+    types: ["geocode"], // adressen + bedrijven
+    componentRestrictions: { country: "nl" }
+  };
+
   if (pickupInput && google?.maps?.places) {
-    new google.maps.places.Autocomplete(pickupInput, {
-      types: ["address"],
-      componentRestrictions: { country: "nl" }
-    });
+    new google.maps.places.Autocomplete(pickupInput, options);
   }
 
   if (deliveryInput && google?.maps?.places) {
-    new google.maps.places.Autocomplete(deliveryInput, {
-      types: ["address"],
-      componentRestrictions: { country: "nl" }
-    });
+    new google.maps.places.Autocomplete(deliveryInput, options);
   }
 }
 
