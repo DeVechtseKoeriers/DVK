@@ -719,10 +719,21 @@ async function createShipment() {
     return;
   }
 
-  // Event: aangemaakt (optioneel)
-  try {
+  // Event: AANGEMAAKT (maar nooit dubbel)
+try {
+  const { data: existing, error: e1 } = await supabaseClient
+    .from("shipment_events")
+    .select("id")
+    .eq("shipment_id", data.id)
+    .eq("event_type", "AANGEMAAKT")
+    .limit(1);
+
+  if (!e1 && (!existing || existing.length === 0)) {
     await addEvent(data.id, "AANGEMAAKT", null);
-  } catch {}
+  }
+} catch (e) {
+  console.warn("AANGEMAAKT event check/add failed:", e);
+}
 
   msg(`Aangemaakt: ${data.track_code}`);
 
