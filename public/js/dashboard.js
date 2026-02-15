@@ -905,6 +905,12 @@ function initAutocomplete() {
 }
 window.addEventListener("load", initAutocomplete);
 
+function initMaps() {
+  console.log("Google Maps geladen");
+
+  // hier komt straks route logic
+}
+
 // ---------------- INIT
 (async () => {
   const user = await requireAuth();
