@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DVK Chauffeur Dashboard</title>
   <link rel="stylesheet" href="/DVK/public/css/app.css?v=10" />
-  
 </head>
+
 <body>
   <div class="topbar">
     <h1>Zending aanmaken</h1>
-    <button id="btnLogout">Uitloggen</button>
+    <button id="btnLogout" type="button">Uitloggen</button>
   </div>
 
   <div class="card">
@@ -55,7 +55,7 @@
       </div>
 
       <div style="align-self:flex-end">
-        <button id="btnCreate">Aanmaken</button>
+        <button id="btnCreate" type="button">Aanmaken</button>
       </div>
     </div>
 
@@ -68,16 +68,36 @@
   </div>
 
   <div class="card">
-  <h2>Zendingen</h2>
+    <h2>Zendingen</h2>
 
-  <div style="display:flex; gap:10px; margin-bottom:10px;">
-    <button id="tabActive" type="button">Actief</button>
-    <button id="tabArchived" type="button">Gearchiveerd</button>
+    <div style="display:flex; gap:10px; margin-bottom:10px;">
+      <button id="tabActive" type="button">Actief</button>
+      <button id="tabArchived" type="button">Gearchiveerd</button>
+    </div>
+
+    <div id="list"></div>
+    <div id="listArchived" style="display:none;"></div>
   </div>
 
-  <div id="list"></div>
-  <div id="listArchived" style="display:none;"></div>
-</div>
+  <!-- Routeplanner -->
+  <div class="card">
+    <h2>Routeplanner</h2>
+
+    <div class="row">
+      <button id="btnPlanRoute" type="button">Plan optimale route</button>
+
+      <label style="display:flex;gap:8px;align-items:center;">
+        <input type="checkbox" id="autoRoute" checked />
+        Automatisch herberekenen
+      </label>
+
+      <small id="routeMsg" class="muted"></small>
+    </div>
+
+    <div id="routeList" class="routeList"></div>
+
+    <div id="map" style="height:360px;border-radius:12px;margin-top:12px;"></div>
+  </div>
 
   <!-- Modal: Afgeleverd + handtekening + fotos -->
   <div id="modalOverlay" class="modal-overlay" style="display:none;">
@@ -121,36 +141,19 @@
     </div>
   </div>
 
- <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Scripts onderaan, vaste volgorde -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
-<!-- jsPDF -->
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="/DVK/public/js/supabase-config.js?v=11"></script>
 
-<script src="/DVK/public/js/supabase-config.js?v=11"></script>
+  <!-- Jouw app-code moet initMaps op window zetten -->
+  <script src="/DVK/public/js/dashboard.js?v=11"></script>
 
-<div class="card">
-  <h2>Routeplanner</h2>
-
-  <div class="row">
-    <button id="btnPlanRoute">Plan optimale route</button>
-    <label style="display:flex;gap:8px;align-items:center;">
-      <input type="checkbox" id="autoRoute" checked />
-      Automatisch herberekenen
-    </label>
-    <small id="routeMsg" class="muted"></small>
-  </div>
-
-  <div id="routeList" class="routeList"></div>
-
-  <div id="map" style="height:360px;border-radius:12px;margin-top:12px;"></div>
-
-<!-- Google Maps API -->
-<script
-  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDXE-jkOXsKxIdyXarrbBsA3ut_C3nvWMI&libraries=places&callback=initMaps"
-  async
-  defer
-</script>
-  
-<script src="/DVK/public/js/dashboard.js?v=11"></script>  
+  <!-- Google Maps als laatste, ZONDER async (defer is genoeg) -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=JOUW_API_KEY_HIER&libraries=places&callback=initMaps"
+    defer
+  ></script>
 </body>
 </html>
