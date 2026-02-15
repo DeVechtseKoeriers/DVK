@@ -829,19 +829,79 @@ function initAutocomplete() {
   const pickupInput = document.getElementById("pickup_address");
   const deliveryInput = document.getElementById("delivery_address");
 
+  if (!google?.maps?.places) {
+    console.warn("Google Places niet geladen (check script + Places API).");
+    return;
+  }
+
+  // GEEN 'types' => bedrijven + adressen
   const options = {
-    componentRestrictions: { country: "nl" }
+    componentRestrictions: { country: "nl" },
   };
 
-  if (pickupInput && google?.maps?.places) {
-    pickupInput.setAttribute("autocomplete", "off");
-    new google.maps.places.Autocomplete(pickupInput, options);
+  function buildAddressFromComponents(components) {
+    if (!components?.length) return "";
+
+    const get = (type) =>
+      components.find((c) => c.types.includes(type))?.long_name || "";
+
+    const route = get("route");
+    const streetNumber = get("street_number");
+    const postalCode = get("postal_code");
+    const locality = get("locality") || get("postal_town");
+
+    const line1 = [route, streetNumber].filter(Boolean).join(" ");
+    const line2 = [postalCode, locality].filter(Boolean).join(" ");
+
+    return [line1, line2].filter(Boolean).join(", ");
   }
 
-  if (deliveryInput && google?.maps?.places) {
-    deliveryInput.setAttribute("autocomplete", "off");
-    new google.maps.places.Autocomplete(deliveryInput, options);
+  function attach(input) {
+    if (!input) return;
+
+    input.setAttribute("autocomplete", "off");
+
+    const ac = new google.maps.places.Autocomplete(input, options);
+
+    // We vragen expliciet om alles wat we nodig hebben:
+    // - formatted_address (meestal incl. postcode + huisnr)
+    // - address_components (fallback om zelf op te bouwen)
+    // - name (bedrijfsnaam)
+    // - place_id (handig als je later iets wil)
+    if (ac.setFields) {
+      ac.setFields(["formatted_address", "address_components", "name", "place_id"]);
+    }
+
+    ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+
+      // 1) Probeer altijd een volledig adres te maken
+      let full = place?.formatted_address || buildAddressFromComponents(place?.address_components);
+
+      // 2) Als het een bedrijf is: zet "Bedrijf, Volledig adres"
+      // (Bij puur woonadres is name vaak leeg of gelijk aan straat)
+      const name = (place?.name || "").trim();
+      if (name) {
+        // voorkom dubbel: als name al in full zit
+        const lowerFull = (full || "").toLowerCase();
+        const lowerName = name.toLowerCase();
+
+        if (full && !lowerFull.includes(lowerName)) {
+          input.value = `${name}, ${full}`;
+        } else if (full) {
+          input.value = full;
+        } else {
+          input.value = name; // laatste fallback
+        }
+      } else {
+        // Geen bedrijfsnaam -> gewoon het (volledige) adres
+        if (full) input.value = full;
+      }
+    });
   }
+
+  attach(pickupInput);
+  attach(deliveryInput);
 }
 window.addEventListener("load", initAutocomplete);
 
