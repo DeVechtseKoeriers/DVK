@@ -140,14 +140,29 @@ function renderTimeline(events) {
 
   timelineEl.innerHTML = "";
 
-  const cleaned = dedupeEvents(events);
+  // Dedupe: zelfde event_type + zelfde tijd (op seconde) maar 1x tonen
+const seen = new Set();
+const cleaned = [];
 
-  if (!cleaned || cleaned.length === 0) {
-    timelineEl.innerHTML = `<div class="muted">Nog geen updates beschikbaar.</div>`;
-    return;
-  }
+for (const ev of (events || [])) {
+  const t = ev.created_at ? new Date(ev.created_at) : null;
+  const keyTime = t && !isNaN(t) ? Math.floor(t.getTime() / 1000) : "x";
+  const key = `${ev.event_type || ""}|${keyTime}`;
 
-  for (const ev of cleaned) {
+  if (seen.has(key)) continue;
+  seen.add(key);
+  cleaned.push(ev);
+}
+
+// werk verder met cleaned i.p.v. events
+events = cleaned;
+
+  if (!events || events.length === 0) {
+  timelineEl.innerHTML = `<div class="muted">Nog geen updates beschikbaar.</div>`;
+  return;
+}
+
+for (const ev of events) {
     const div = document.createElement("div");
     div.className = "ev";
 
