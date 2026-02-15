@@ -429,8 +429,9 @@
       else active.push(s);
     }
 
-    // ✅ cache voor routeplanner
-    activeShipmentsCache = active;
+    window.activeShipmentsCache = active;
+if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
+  }
 
     if (listEl) {
       if (active.length === 0) listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
