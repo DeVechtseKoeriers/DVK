@@ -47,6 +47,7 @@
   const routeMsgEl = document.getElementById("routeMsg");
   const routeListEl = document.getElementById("routeList");
   const mapEl = document.getElementById("map");
+  const routeSummaryEl = document.getElementById("routeSummary");
 
   // ---------------- STATE
   let currentTab = "active";
