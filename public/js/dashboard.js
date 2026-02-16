@@ -693,6 +693,8 @@
     const shipment_type = document.getElementById("shipment_type")?.value || "doos";
     const shipment_type_other = document.getElementById("shipment_type_other")?.value.trim() || null;
     const colli_count = parseInt(document.getElementById("colli_count")?.value || "1", 10);
+    const pickup_prio = document.getElementById("pickup_prio")?.checked || false;
+    const delivery_prio = document.getElementById("delivery_prio")?.checked || false;
 
     if (!customer_name || !pickup_address || !delivery_address) {
       msg("Vul klantnaam + ophaaladres + bezorgadres in.");
@@ -713,6 +715,8 @@
         shipment_type,
         shipment_type_other: shipment_type === "overig" ? shipment_type_other : null,
         colli_count,
+        pickup_prio,
+        delivery_prio,
         status: "AANGEMAAKT",
       })
       .select("*")
