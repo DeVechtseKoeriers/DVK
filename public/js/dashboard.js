@@ -432,9 +432,16 @@
       else active.push(s);
     }
 
-    // ✅ cache voor routeplanner
+     // ✅ cache voor routeplanner
     activeShipmentsCache = active;
     window.activeShipmentsCache = active;
+
+    // ✅ Auto route plannen zodra zendingen geladen zijn (als autoRoute aan staat)
+setTimeout(() => {
+  if (autoRouteEl?.checked && window.__dvkMapsReady) {
+    planOptimalRoute();
+  }
+}, 400);
 
     // UI
     if (listEl) {
