@@ -1003,7 +1003,11 @@
 
     const addrs = [BASE_ADDRESS, ...stops.map((s) => s.addr)];
     const matrix = await buildTimeMatrix(addrs);
-
+    function getDistanceMeters(matrix, i, j) {
+      const el = matrix?.rows?.[i]?.elements?.[j];
+      if (!el || el.status !== "OK") return Number.POSITIVE_INFINITY;
+      return el.distance?.value ?? Number.POSITIVE_INFINITY; // meters
+}
     const donePickups = new Set(); // shipmentId
     const remaining = new Map(); // id->stop
     stops.forEach((s) => remaining.set(s.id, s));
