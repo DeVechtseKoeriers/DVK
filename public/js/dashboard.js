@@ -945,20 +945,22 @@
       if (!p || !d) continue;
 
       stops.push({
-        id: `P:${s.id}`,
-        shipmentId: s.id,
-        type: "pickup",
-        addr: p,
-        label: `Ophalen: ${p} (${s.track_code || ""})`,
-      });
+  id: pickId,
+  shipmentId: s.id,
+  type: "pickup",
+  addr: p,
+  priority: s.pickup_prio === true,   // 👈 NIEUW
+  label: `Ophalen: ${p} (${s.track_code || ""})`,
+});
 
       stops.push({
-        id: `D:${s.id}`,
-        shipmentId: s.id,
-        type: "delivery",
-        addr: d,
-        label: `Bezorgen: ${d} (${s.track_code || ""})`,
-      });
+  id: delId,
+  shipmentId: s.id,
+  type: "delivery",
+  addr: d,
+  priority: s.delivery_prio === true,   // 👈 NIEUW
+  label: `Bezorgen: ${d} (${s.track_code || ""})`,
+});
     }
 
     return stops;
