@@ -971,13 +971,17 @@
     const svc = new google.maps.DistanceMatrixService();
 
     return await new Promise((resolve, reject) => {
-      svc.getDistanceMatrix(
-        {
-          origins: addresses,
-          destinations: addresses,
-          travelMode: google.maps.TravelMode.DRIVING,
-          unitSystem: google.maps.UnitSystem.METRIC,
-        },
+     svc.getDistanceMatrix(
+  {
+    origins: addresses,
+    destinations: addresses,
+    travelMode: google.maps.TravelMode.DRIVING,
+    drivingOptions: {
+      departureTime: new Date(),
+      trafficModel: google.maps.TrafficModel.BEST_GUESS,
+    },
+    unitSystem: google.maps.UnitSystem.METRIC,
+  },
         (res, status) => {
           if (status !== "OK" || !res) return reject(new Error("DistanceMatrix fout: " + status));
           resolve(res);
