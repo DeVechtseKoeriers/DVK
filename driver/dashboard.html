@@ -42,7 +42,9 @@
       </div>
     </div>
 
+    <div style="margin-top:12px;"></div>
     <div class="row">
+      <small id="routeMsg" class="muted"></small>
       <div>
         <label>Type zending</label><br/>
         <select id="shipment_type">
@@ -95,10 +97,10 @@
     <div class="row">
       <button id="btnPlanRoute" type="button">Plan optimale route</button>
 
-      <label style="display:flex;gap:8px;align-items:center;">
-        <input type="checkbox" id="autoRoute" checked />
-        Automatisch herberekenen
-      </label>
+      <label style="display:flex; align-items:center; gap:4px;">
+  <input type="checkbox" id="globalPrio">
+  PRIO
+</label>
 
       <small id="routeMsg" class="muted"></small>
     </div>
