@@ -945,13 +945,25 @@
       const d = (s.delivery_address || "").trim();
       if (!p || !d) continue;
 
-      stops.push({
+const pickId = `pick_${s.id}`;
+const delId  = `del_${s.id}`;
+
+stops.push({
   id: pickId,
   shipmentId: s.id,
   type: "pickup",
   addr: p,
-  priority: s.pickup_prio === true,   // 👈 NIEUW
+  priority: s.pickup_prio === true,
   label: `Ophalen: ${p} (${s.track_code || ""})`,
+});
+
+stops.push({
+  id: delId,
+  shipmentId: s.id,
+  type: "delivery",
+  addr: d,
+  priority: s.delivery_prio === true,
+  label: `Bezorgen: ${d} (${s.track_code || ""})`,
 });
 
       stops.push({
