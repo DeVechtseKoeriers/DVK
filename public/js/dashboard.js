@@ -1023,13 +1023,19 @@
       let bestCost = Number.POSITIVE_INFINITY;
 
       for (const c of candidates) {
-        const cIndex = idxOfStop(c);
-        const cost = getDurationSeconds(matrix, currentIndex, cIndex);
-        if (cost < bestCost) {
-          bestCost = cost;
-          best = c;
-        }
-      }
+  const cIndex = 1 + stops.findIndex(x => x.id === c.id);
+  let cost = getDurationSeconds(matrix, currentIndex, cIndex);
+
+  // 👇 PRIORITEIT BOOST
+  if (c.priority) {
+    cost = cost * 0.3; // prio stops 70% belangrijker
+  }
+
+  if (cost < bestCost) {
+    bestCost = cost;
+    best = c;
+  }
+}
 
       ordered.push(best);
       remaining.delete(best.id);
