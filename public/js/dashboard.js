@@ -1108,10 +1108,34 @@
       }
 
       const ordered = await computeOrderedStopsGreedy(stops);
-      renderRouteList(ordered);
-      await drawRouteOnMap(ordered);
+renderRouteList(ordered);
 
-      routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
+const res = await drawRouteOnMap(ordered); // ✅ res opslaan
+
+// ✅ totaal KM + tijd uit Directions-result
+try {
+  const legs = res?.routes?.[0]?.legs || [];
+  let meters = 0;
+  let seconds = 0;
+
+  for (const leg of legs) {
+    meters += leg?.distance?.value || 0;
+    seconds += leg?.duration?.value || 0;
+  }
+
+  const km = (meters / 1000).toFixed(1);
+
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  const timeText = (h > 0) ? `${h}u ${m}m` : `${m}m`;
+
+  const el = document.getElementById("routeSummary");
+  if (el) el.innerHTML = `Totale afstand: ${km} km &nbsp;&nbsp;&nbsp; Totale reistijd: ${timeText}`;
+} catch (e) {
+  console.warn("route summary calc failed:", e);
+}
+
+routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
     } catch (e) {
       console.error(e);
       routeMsg("Route fout: " + (e?.message || e));
