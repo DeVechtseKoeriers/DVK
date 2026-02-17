@@ -78,6 +78,7 @@
   let currentTab = "active";
   let currentDeliveryShipment = null;
   let currentUserId = null;
+  let currentEditShipment = null;
 
   // cache voor routeplanner
   let activeShipmentsCache = [];
