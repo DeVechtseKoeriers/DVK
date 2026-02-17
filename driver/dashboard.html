@@ -24,6 +24,32 @@
     <div class="stopsBtns">
       <button id="btnAddPickup" type="button">+ Ophalen</button>
       <button id="btnAddDelivery" type="button">+ Bezorgen</button>
+
+      function addStopRow(type) {
+  const wrap = document.getElementById("stopsWrap");
+  if (!wrap) return;
+
+  const row = document.createElement("div");
+  row.className = "stopRow";
+  row.setAttribute("data-type", type);
+
+  row.innerHTML = `
+    <input class="stopAddress" placeholder="Straat, huisnr, plaats" />
+
+    <label class="prioLine">
+      <input class="stopPrio" type="checkbox" />
+      <span>PRIO</span>
+    </label>
+
+    <button type="button" class="stopRemove">x</button>
+  `;
+
+  row.querySelector(".stopRemove").addEventListener("click", () => row.remove());
+  wrap.appendChild(row);
+}
+
+if (btnAddPickup) btnAddPickup.addEventListener("click", () => addStopRow("pickup"));
+if (btnAddDelivery) btnAddDelivery.addEventListener("click", () => addStopRow("delivery"));
     </div>
   </div>
 
