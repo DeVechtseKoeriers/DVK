@@ -192,3 +192,40 @@ button:disabled { opacity: .6; cursor: not-allowed; }
   }
   .stopDel{ width:100%; }
 }
+
+/* ===== Edit modal stops layout ===== */
+#editStopsWrap .stopRow{
+  display:grid;
+  grid-template-columns: 90px 1fr 90px 34px;
+  gap:10px;
+  align-items:center;
+  margin:8px 0;
+}
+
+#editStopsWrap .stopType{
+  font-weight:700;
+  font-size:12px;
+  opacity:.75;
+}
+
+#editStopsWrap .prioLine{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:0;
+}
+
+#editStopsWrap .prioLine input[type="checkbox"]{
+  width:16px;
+  height:16px;
+  margin:0;
+}
+
+#editStopsWrap .stopRemove{
+  width:30px;
+  height:30px;
+  padding:0;
+  border-radius:8px;
+  font-size:18px;
+  line-height:1;
+}
