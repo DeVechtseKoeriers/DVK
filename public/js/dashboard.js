@@ -508,8 +508,21 @@ function addEditStopRow(type, address = "", prio = false) {
     if ((shipment.delivery_address || "").trim()) addEditStopRow("delivery", shipment.delivery_address, shipment.delivery_prio === true);
   }
 
-  // Open modal
-  if (editOverlay) editOverlay.style.display = "flex";
+   } else {
+  // fallback...
+}
+
+// Edit modal – add stop buttons
+if (btnEditAddPickup) {
+  btnEditAddPickup.onclick = () => addEditStopRow("pickup");
+}
+
+if (btnEditAddDelivery) {
+  btnEditAddDelivery.onclick = () => addEditStopRow("delivery");
+}
+
+// Open modal
+if (editOverlay) editOverlay.style.display = "flex";
 }
 
     setTimeout(() => {
