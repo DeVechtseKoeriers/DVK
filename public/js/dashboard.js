@@ -905,21 +905,26 @@
   }
 
   function renderRouteList(stops) {
-    if (!routeListEl) return;
-    routeListEl.innerHTML = "";
+  if (!routeListEl) return;
+  routeListEl.innerHTML = "";
 
-    const title = document.createElement("div");
-    title.style.fontWeight = "700";
-    title.style.marginBottom = "6px";
-    title.textContent = "Optimale volgorde:";
-    routeListEl.appendChild(title);
+  const title = document.createElement("div");
+  title.style.fontWeight = "700";
+  title.style.marginBottom = "6px";
+  title.textContent = "Optimale volgorde:";
+  routeListEl.appendChild(title);
 
-    stops.forEach((s, i) => {
-      const row = document.createElement("div");
-      row.textContent = `${i + 1}. ${s.label}`;
-      routeListEl.appendChild(row);
-    });
-  }
+  stops.forEach((s, i) => {
+    const row = document.createElement("div");
+
+    const prio = s.priority
+      ? ' <span style="color:#c00;font-weight:800;">P</span>'
+      : "";
+
+    row.innerHTML = `${i + 1}. ${escapeHtml(s.label)}${prio}`;
+    routeListEl.appendChild(row);
+  });
+}
 
   function ensureMapsReady() {
     if (!window.google?.maps) throw new Error("Google Maps API niet geladen.");
