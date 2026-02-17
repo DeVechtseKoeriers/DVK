@@ -1067,7 +1067,6 @@ setTimeout(() => {
       actions.append(button("Verwijderen", async () => deleteShipment(s)));
       actions.append(button("Wijzigen", () => openEditModal(s)));
 
-      actions.append(button("Wijzigen", async () => {
   // Simpele bewerkflow via prompts (later kunnen we dit mooier maken met een modal)
   const newCustomer = prompt("Klantnaam:", s.customer_name || "");
   if (newCustomer === null) return;
