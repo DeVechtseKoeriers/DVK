@@ -84,3 +84,16 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .prioLabel input{
   margin:0;
 }
+
+/* PRIO netjes onder adres + naast checkbox */
+.prioLine{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.prioLine input{
+  margin: 0;
+}
