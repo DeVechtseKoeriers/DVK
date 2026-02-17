@@ -129,11 +129,16 @@
     <label>Klantnaam</label>
     <input id="editCustomer" />
 
-    <label>Ophaaladres</label>
-    <input id="editPickup" />
+    <div class="stopsHeader" style="margin-top:10px;">
+  <div><b>Stops</b></div>
+  <div class="stopsBtns">
+    <button id="btnEditAddPickup" type="button">+ Ophalen</button>
+    <button id="btnEditAddDelivery" type="button">+ Bezorgen</button>
+  </div>
+</div>
 
-    <label>Bezorgadres</label>
-    <input id="editDelivery" />
+<div id="editStopsWrap" class="stopsWrap"></div>
+<small class="muted">Tip: zet PRIO per stop (staat netjes naast vinkje).</small>
 
     <div style="display:flex; gap:10px;">
       <div style="flex:1;">
