@@ -786,14 +786,14 @@ function syncPrimaryFromStops(stops) {
       const supabaseClient = await ensureClient();
 
       const payload = {
-        customer_name,
-        pickup_address,
-        delivery_address,
-        shipment_type,
-        shipment_type_other: (shipment_type === "overig" ...
-        colli_count,
-       stops: stops
-     };
+  customer_name,
+  pickup_address,
+  delivery_address,
+  shipment_type,
+  shipment_type_other: shipment_type === "overig" ? (shipment_type_other || null) : null,
+  colli_count,
+  stops, // <-- BELANGRIJK
+};
 
       const { error } = await supabaseClient
         .from("shipments")
