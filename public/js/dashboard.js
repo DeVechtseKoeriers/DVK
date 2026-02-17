@@ -500,20 +500,23 @@ const stops = Array.isArray(shipment.stops) ? shipment.stops : [];
 
 if (stops.length) {
   for (const st of stops) {
-    addEditStopRow(
-      st.type || "delivery",
-      st.address || "",
-      !!st.priority
-    );
+    const type =
+      (st.type || st.stop_type || st.kind || "delivery");
+
+    const address =
+      (st.address || st.stop_address || st.addr || st.location || "").trim();
+
+    const prio =
+      !!(st.prio ?? st.priority ?? st.is_prio ?? st.isPriority ?? false);
+
+    if (address) addEditStopRow(type, address, prio);
   }
 } else {
-  // fallback voor oude records zonder stops:
-  if ((shipment.pickup_address || "").trim()) {
-    addEditStopRow("pickup", shipment.pickup_address || "", !!shipment.pickup_prio);
-  }
-  if ((shipment.delivery_address || "").trim()) {
-    addEditStopRow("delivery", shipment.delivery_address || "", !!shipment.delivery_prio);
-  }
+  const pu = (shipment.pickup_address || "").trim();
+  const de = (shipment.delivery_address || "").trim();
+
+  if (pu) addEditStopRow("pickup", pu, !!shipment.pickup_prio);
+  if (de) addEditStopRow("delivery", de, !!shipment.delivery_prio);
 }
     
 // Edit modal – add stop buttons
