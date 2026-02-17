@@ -43,7 +43,7 @@
 
   // Routeplanner DOM
   const btnPlanRoute = document.getElementById("btnPlanRoute");
-  const autoRouteEl = document.getElementById("autoRoute");
+  const autoRouteEl = document.getElementById("autoRoute"); // checkbox in Routeplanner
   const routeMsgEl = document.getElementById("routeMsg");
   const routeListEl = document.getElementById("routeList");
   const mapEl = document.getElementById("map");
@@ -419,7 +419,9 @@
     if (!data || data.length === 0) {
       activeShipmentsCache = [];
       window.activeShipmentsCache = activeShipmentsCache;
+
       if (listEl) listEl.innerHTML = "<small>Geen zendingen.</small>";
+
       // auto reroute (leegt kaart)
       if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
       return;
@@ -432,16 +434,17 @@
       else active.push(s);
     }
 
-     // ✅ cache voor routeplanner
+    // ✅ cache voor routeplanner
     activeShipmentsCache = active;
     window.activeShipmentsCache = active;
 
     // ✅ Auto route plannen zodra zendingen geladen zijn (als autoRoute aan staat)
-setTimeout(() => {
-  if (autoRouteEl?.checked && window.__dvkMapsReady) {
-    planOptimalRoute();
-  }
-}, 400);
+    // (zet 'm pas na cache, zodat planOptimalRoute de juiste shipments ziet)
+    setTimeout(() => {
+      if (autoRouteEl?.checked && window.__dvkMapsReady) {
+        planOptimalRoute();
+      }
+    }, 400);
 
     // UI
     if (listEl) {
@@ -454,7 +457,7 @@ setTimeout(() => {
       else for (const s of archived) listArchivedEl.appendChild(renderShipmentCard(s));
     }
 
-    // ✅ auto reroute
+    // ✅ auto reroute (bij statuswijzigingen e.d.)
     if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
   }
 
@@ -952,35 +955,26 @@ setTimeout(() => {
       const d = (s.delivery_address || "").trim();
       if (!p || !d) continue;
 
-const pickId = `pick_${s.id}`;
-const delId  = `del_${s.id}`;
-
-stops.push({
-  id: pickId,
-  shipmentId: s.id,
-  type: "pickup",
-  addr: p,
-  priority: s.pickup_prio === true,
-  label: `Ophalen: ${p} (${s.track_code || ""})`,
-});
-
-stops.push({
-  id: delId,
-  shipmentId: s.id,
-  type: "delivery",
-  addr: d,
-  priority: s.delivery_prio === true,
-  label: `Bezorgen: ${d} (${s.track_code || ""})`,
-});
+      const pickId = `pick_${s.id}`;
+      const delId = `del_${s.id}`;
 
       stops.push({
-  id: delId,
-  shipmentId: s.id,
-  type: "delivery",
-  addr: d,
-  priority: s.delivery_prio === true,   // 👈 NIEUW
-  label: `Bezorgen: ${d} (${s.track_code || ""})`,
-});
+        id: pickId,
+        shipmentId: s.id,
+        type: "pickup",
+        addr: p,
+        priority: s.pickup_prio === true,
+        label: `Ophalen: ${p} (${s.track_code || ""})`,
+      });
+
+      stops.push({
+        id: delId,
+        shipmentId: s.id,
+        type: "delivery",
+        addr: d,
+        priority: s.delivery_prio === true,
+        label: `Bezorgen: ${d} (${s.track_code || ""})`,
+      });
     }
 
     return stops;
@@ -991,17 +985,17 @@ stops.push({
     const svc = new google.maps.DistanceMatrixService();
 
     return await new Promise((resolve, reject) => {
-     svc.getDistanceMatrix(
-  {
-    origins: addresses,
-    destinations: addresses,
-    travelMode: google.maps.TravelMode.DRIVING,
-    drivingOptions: {
-      departureTime: new Date(),
-      trafficModel: google.maps.TrafficModel.BEST_GUESS,
-    },
-    unitSystem: google.maps.UnitSystem.METRIC,
-  },
+      svc.getDistanceMatrix(
+        {
+          origins: addresses,
+          destinations: addresses,
+          travelMode: google.maps.TravelMode.DRIVING,
+          drivingOptions: {
+            departureTime: new Date(),
+            trafficModel: google.maps.TrafficModel.BEST_GUESS,
+          },
+          unitSystem: google.maps.UnitSystem.METRIC,
+        },
         (res, status) => {
           if (status !== "OK" || !res) return reject(new Error("DistanceMatrix fout: " + status));
           resolve(res);
@@ -1022,11 +1016,7 @@ stops.push({
 
     const addrs = [BASE_ADDRESS, ...stops.map((s) => s.addr)];
     const matrix = await buildTimeMatrix(addrs);
-    function getDistanceMeters(matrix, i, j) {
-      const el = matrix?.rows?.[i]?.elements?.[j];
-      if (!el || el.status !== "OK") return Number.POSITIVE_INFINITY;
-      return el.distance?.value ?? Number.POSITIVE_INFINITY; // meters
-}
+
     const donePickups = new Set(); // shipmentId
     const remaining = new Map(); // id->stop
     stops.forEach((s) => remaining.set(s.id, s));
@@ -1043,7 +1033,6 @@ stops.push({
         if (s.type === "delivery" && donePickups.has(s.shipmentId)) candidates.push(s);
       }
       if (!candidates.length) {
-        // fallback (zou niet moeten)
         for (const s of remaining.values()) candidates.push(s);
       }
 
@@ -1051,19 +1040,17 @@ stops.push({
       let bestCost = Number.POSITIVE_INFINITY;
 
       for (const c of candidates) {
-  const cIndex = 1 + stops.findIndex(x => x.id === c.id);
-  let cost = getDurationSeconds(matrix, currentIndex, cIndex);
+        const cIndex = idxOfStop(c);
+        let cost = getDurationSeconds(matrix, currentIndex, cIndex);
 
-  // 👇 PRIORITEIT BOOST
-  if (c.priority) {
-    cost = cost * 0.3; // prio stops 70% belangrijker
-  }
+        // 👇 PRIORITEIT BOOST
+        if (c.priority) cost = cost * 0.3;
 
-  if (cost < bestCost) {
-    bestCost = cost;
-    best = c;
-  }
-}
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = c;
+        }
+      }
 
       ordered.push(best);
       remaining.delete(best.id);
@@ -1114,6 +1101,32 @@ stops.push({
     });
   }
 
+  function setRouteSummaryFromDirections(res) {
+    if (!routeSummaryEl) return;
+
+    try {
+      const legs = res?.routes?.[0]?.legs || [];
+      let meters = 0;
+      let seconds = 0;
+
+      for (const leg of legs) {
+        meters += leg?.distance?.value || 0;
+        seconds += leg?.duration?.value || 0;
+      }
+
+      const km = (meters / 1000).toFixed(1);
+
+      const h = Math.floor(seconds / 3600);
+      const m = Math.round((seconds % 3600) / 60);
+      const timeText = h > 0 ? `${h}u ${m}m` : `${m}m`;
+
+      routeSummaryEl.innerHTML = `Totale afstand: ${km} km &nbsp;&nbsp;&nbsp; Totale reistijd: ${timeText}`;
+    } catch (e) {
+      console.warn("route summary calc failed:", e);
+      routeSummaryEl.innerHTML = `Totale afstand: – &nbsp;&nbsp;&nbsp; Totale reistijd: –`;
+    }
+  }
+
   async function planOptimalRoute() {
     try {
       routeMsg("Route berekenen...");
@@ -1123,38 +1136,17 @@ stops.push({
       if (!stops.length) {
         routeMsg("Geen actieve zendingen voor routeplanning.");
         if (directionsRenderer) directionsRenderer.set("directions", null);
+        if (routeSummaryEl) routeSummaryEl.innerHTML = `Totale afstand: – &nbsp;&nbsp;&nbsp; Totale reistijd: –`;
         return;
       }
 
       const ordered = await computeOrderedStopsGreedy(stops);
-renderRouteList(ordered);
+      renderRouteList(ordered);
 
-const res = await drawRouteOnMap(ordered); // ✅ res opslaan
+      const res = await drawRouteOnMap(ordered);
+      setRouteSummaryFromDirections(res);
 
-// ✅ totaal KM + tijd uit Directions-result
-try {
-  const legs = res?.routes?.[0]?.legs || [];
-  let meters = 0;
-  let seconds = 0;
-
-  for (const leg of legs) {
-    meters += leg?.distance?.value || 0;
-    seconds += leg?.duration?.value || 0;
-  }
-
-  const km = (meters / 1000).toFixed(1);
-
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  const timeText = (h > 0) ? `${h}u ${m}m` : `${m}m`;
-
-  const el = document.getElementById("routeSummary");
-  if (el) el.innerHTML = `Totale afstand: ${km} km &nbsp;&nbsp;&nbsp; Totale reistijd: ${timeText}`;
-} catch (e) {
-  console.warn("route summary calc failed:", e);
-}
-
-routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
+      routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
     } catch (e) {
       console.error(e);
       routeMsg("Route fout: " + (e?.message || e));
