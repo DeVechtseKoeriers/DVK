@@ -70,3 +70,17 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .routePrio input{
   margin:0;
 }
+
+/* ===== PRIO naast checkbox (create formulier) ===== */
+.prioLabel{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-top:6px;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.prioLabel input{
+  margin:0;
+}
