@@ -32,6 +32,20 @@
   const legacyPickupPrio = document.getElementById("pickup_prio");
   const legacyDeliveryPrio = document.getElementById("delivery_prio");
 
+  // Edit modal
+  const editOverlay = document.getElementById("editOverlay");
+  const editShipmentInfo = document.getElementById("editShipmentInfo");
+  const editCustomer = document.getElementById("editCustomer");
+  const editPickup = document.getElementById("editPickup");
+  const editDelivery = document.getElementById("editDelivery");
+  const editType = document.getElementById("editType");
+  const editColli = document.getElementById("editColli");
+  const editOtherWrap = document.getElementById("editOtherWrap");
+  const editTypeOther = document.getElementById("editTypeOther");
+  const editError = document.getElementById("editError");
+  const editCancel = document.getElementById("editCancel");
+  const editSave = document.getElementById("editSave");
+
   // Delivered modal
   const overlay = document.getElementById("modalOverlay");
   const modalShipmentInfo = document.getElementById("modalShipmentInfo");
