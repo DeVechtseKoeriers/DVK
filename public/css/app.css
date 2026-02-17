@@ -50,3 +50,23 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 
 .sig-wrap { border:1px solid #ccc; border-radius:8px; background:#fff; overflow:hidden; }
 #sigCanvas { width: 520px; height: 180px; max-width: 100%; display:block; touch-action:none; }
+
+/* ===== Routeplanner layout ===== */
+
+.routeControls{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:16px; /* ruimte tussen knop en 'Optimale volgorde' */
+}
+
+.routePrio{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;  /* PRIO dichter bij checkbox */
+  margin:0;
+}
+
+.routePrio input{
+  margin:0;
+}
