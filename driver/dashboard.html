@@ -91,19 +91,16 @@
   </div>
 
   <!-- Routeplanner -->
-  <div class="card">
-    <h2>Routeplanner</h2>
+  <div class="routeControls">
+  <button id="btnPlanRoute" type="button">Plan optimale route</button>
 
-    <div class="row" style="justify-content:flex-start; gap:14px; align-items:center;">
-      <button id="btnPlanRoute" type="button">Plan optimale route</button>
+  <label class="routePrio">
+    <input type="checkbox" id="autoRoute" checked />
+    PRIO
+  </label>
 
-      <label style="display:flex; align-items:center; gap:4px; margin:0;">
-  <input type="checkbox" id="globalPrio">
-  PRIO
-</label>
-
-      <small id="routeMsg" class="muted"></small>
-    </div>
+  <small id="routeMsg" class="muted"></small>
+</div>
 <div id="routeList" class="routeList" style="margin-top:14px;"></div>
 
 <div id="routeSummary"
