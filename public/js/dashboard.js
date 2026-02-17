@@ -519,11 +519,10 @@ if (btnEditAddDelivery) {
 
 // Open modal
 if (editOverlay) editOverlay.style.display = "flex";
-}
 
-    setTimeout(() => {
-      editCustomer?.focus();
-    }, 50);
+setTimeout(() => {
+  editCustomer?.focus();
+}, 50);
   }
 
   function closeEditModal() {
