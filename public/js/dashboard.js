@@ -498,19 +498,16 @@ function addEditStopRow(type, address = "", prio = false) {
 
   const stops = Array.isArray(shipment.stops) ? shipment.stops : [];
 
-  if (stops.length) {
-    for (const st of stops) {
-      addEditStopRow(st.type || "delivery", st.address || "", st.prio === true);
-    }
-  } else {
-    // fallback voor oude records zonder stops:
-    if ((shipment.pickup_address || "").trim()) addEditStopRow("pickup", shipment.pickup_address, shipment.pickup_prio === true);
-    if ((shipment.delivery_address || "").trim()) addEditStopRow("delivery", shipment.delivery_address, shipment.delivery_prio === true);
+if (stops.length) {
+  for (const st of stops) {
+    addEditStopRow(st.type || "delivery", st.address || "", !!st.priority);
   }
-
-  // fallback...
+} else {
+  // fallback voor oude records zonder stops:
+  if ((shipment.pickup_address || "").trim()) addEditStopRow("pickup", shipment.pickup_address, !!shipment.pickup_prio);
+  if ((shipment.delivery_address || "").trim()) addEditStopRow("delivery", shipment.delivery_address, !!shipment.delivery_prio);
 }
-
+    
 // Edit modal – add stop buttons
 if (btnEditAddPickup) {
   btnEditAddPickup.onclick = () => addEditStopRow("pickup");
