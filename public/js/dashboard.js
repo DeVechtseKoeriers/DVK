@@ -508,7 +508,6 @@ function addEditStopRow(type, address = "", prio = false) {
     if ((shipment.delivery_address || "").trim()) addEditStopRow("delivery", shipment.delivery_address, shipment.delivery_prio === true);
   }
 
-   } else {
   // fallback...
 }
 
