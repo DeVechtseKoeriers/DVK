@@ -1067,56 +1067,6 @@ setTimeout(() => {
       actions.append(button("Verwijderen", async () => deleteShipment(s)));
       actions.append(button("Wijzigen", () => openEditModal(s)));
 
-  // Simpele bewerkflow via prompts (later kunnen we dit mooier maken met een modal)
-  const newCustomer = prompt("Klantnaam:", s.customer_name || "");
-  if (newCustomer === null) return;
-
-  const newPickup = prompt("Ophaaladres:", s.pickup_address || "");
-  if (newPickup === null) return;
-
-  const newDelivery = prompt("Bezorgadres:", s.delivery_address || "");
-  if (newDelivery === null) return;
-
-  const newType = prompt("Type zending (doos/enveloppe/pallet/overig):", s.shipment_type || "doos");
-  if (newType === null) return;
-
-  let newTypeOther = s.shipment_type_other || null;
-  if ((newType || "").toLowerCase() === "overig") {
-    const v = prompt("Overig (invullen):", newTypeOther || "");
-    if (v === null) return;
-    newTypeOther = v.trim() || null;
-  } else {
-    newTypeOther = null;
-  }
-
-  const newColliStr = prompt("Aantal colli:", String(s.colli_count ?? 1));
-  if (newColliStr === null) return;
-  const newColli = Math.max(1, parseInt(newColliStr, 10) || 1);
-
-  const supabaseClient = await ensureClient();
-
-  const { error } = await supabaseClient
-    .from("shipments")
-    .update({
-      customer_name: (newCustomer || "").trim(),
-      pickup_address: (newPickup || "").trim(),
-      delivery_address: (newDelivery || "").trim(),
-      shipment_type: (newType || "doos").trim().toLowerCase(),
-      shipment_type_other: newTypeOther,
-      colli_count: newColli,
-    })
-    .eq("id", s.id)
-    .eq("driver_id", currentUserId);
-
-  if (error) {
-    alert("Wijzigen mislukt: " + error.message);
-    return;
-  }
-
-  // Refresh + route opnieuw (als auto route aan staat)
-  await loadShipments(currentUserId);
-}));
-
       if (s.status === "AFGELEVERD") {
         actions.append(
           button("Archiveer", async () => {
