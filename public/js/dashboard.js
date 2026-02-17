@@ -394,6 +394,52 @@
     });
   }
 
+  // ---------------- Edit Modal open/close
+  function toggleEditOther() {
+    if (!editType || !editOtherWrap) return;
+    editOtherWrap.style.display = (editType.value === "overig") ? "block" : "none";
+  }
+
+  function openEditModal(shipment) {
+    currentEditShipment = shipment;
+
+    if (editError) editError.textContent = "";
+
+    if (editShipmentInfo) {
+      editShipmentInfo.innerHTML = `<b>${escapeHtml(shipment.track_code || "")}</b>`;
+    }
+
+    if (editCustomer) editCustomer.value = shipment.customer_name || "";
+    if (editPickup) editPickup.value = shipment.pickup_address || "";
+    if (editDelivery) editDelivery.value = shipment.delivery_address || "";
+    if (editType) editType.value = shipment.shipment_type || "doos";
+    if (editColli) editColli.value = String(shipment.colli_count ?? 1);
+    if (editTypeOther) editTypeOther.value = shipment.shipment_type_other || "";
+
+    toggleEditOther();
+
+    if (editOverlay) editOverlay.style.display = "flex";
+
+    setTimeout(() => {
+      editCustomer?.focus();
+    }, 50);
+  }
+
+  function closeEditModal() {
+    if (editOverlay) editOverlay.style.display = "none";
+    currentEditShipment = null;
+  }
+
+  if (editCancel) editCancel.addEventListener("click", closeEditModal);
+
+  if (editOverlay) {
+    editOverlay.addEventListener("click", (e) => {
+      if (e.target === editOverlay) closeEditModal();
+    });
+  }
+
+  if (editType) editType.addEventListener("change", toggleEditOther);
+
   // ---------------- Storage helpers
   async function uploadFile(bucket, path, fileOrBlob, contentType) {
     const supabaseClient = await ensureClient();
