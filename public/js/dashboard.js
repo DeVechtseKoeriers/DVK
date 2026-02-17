@@ -106,6 +106,32 @@
       .replaceAll(">", "&gt;");
   }
 
+  // ===== Google Places Autocomplete helper =====
+function attachPlacesToInput(inputEl) {
+  try {
+    if (!inputEl) return;
+    if (inputEl.dataset.placesAttached === "1") return; // dubbel voorkomen
+    if (!window.google || !google.maps || !google.maps.places) return;
+
+    const ac = new google.maps.places.Autocomplete(inputEl, {
+      fields: ["formatted_address", "geometry", "name"],
+      types: ["geocode"],
+    });
+
+    // optioneel: zet direct formatted address terug in input
+    ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      if (place && place.formatted_address) {
+        inputEl.value = place.formatted_address;
+      }
+    });
+
+    inputEl.dataset.placesAttached = "1";
+  } catch (e) {
+    console.warn("Places attach failed:", e);
+  }
+}
+
   // ===== Edit stops helper =====
 function addEditStopRow(type, address = "", prio = false) {
   if (!editStopsWrap) return;
@@ -126,6 +152,9 @@ function addEditStopRow(type, address = "", prio = false) {
   `;
 
   row.querySelector(".stopRemove").addEventListener("click", () => row.remove());
+
+  const addr = row.querySelector(".editStopAddress");
+  attachPlacesToInput(addr);
 
   editStopsWrap.appendChild(row);
 }
