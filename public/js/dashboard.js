@@ -472,24 +472,45 @@ function addEditStopRow(type, address = "", prio = false) {
   }
 
   function openEditModal(shipment) {
-    currentEditShipment = shipment;
+  currentEditShipment = shipment;
 
-    if (editError) editError.textContent = "";
+  if (editError) editError.textContent = "";
 
-    if (editShipmentInfo) {
-      editShipmentInfo.innerHTML = `<b>${escapeHtml(shipment.track_code || "")}</b>`;
+  // Info bovenin
+  if (editShipmentInfo) {
+    editShipmentInfo.innerHTML = `
+      <b>${escapeHtml(shipment.track_code || "")}</b><br/>
+      <span class="small">${escapeHtml(shipment.customer_name || "")}</span>
+    `;
+  }
+
+  // Basisvelden
+  if (editCustomer) editCustomer.value = shipment.customer_name || "";
+  if (editType) editType.value = shipment.shipment_type || "doos";
+  if (editColli) editColli.value = String(shipment.colli_count ?? 1);
+  if (editTypeOther) editTypeOther.value = shipment.shipment_type_other || "";
+
+  toggleEditOther();
+
+  // ===== Stops (nieuw) =====
+  // We vullen hier ALLE stops (pickup + deliveries) in de edit modal
+  if (editStopsWrap) editStopsWrap.innerHTML = "";
+
+  const stops = Array.isArray(shipment.stops) ? shipment.stops : [];
+
+  if (stops.length) {
+    for (const st of stops) {
+      addEditStopRow(st.type || "delivery", st.address || "", st.prio === true);
     }
+  } else {
+    // fallback voor oude records zonder stops:
+    if ((shipment.pickup_address || "").trim()) addEditStopRow("pickup", shipment.pickup_address, shipment.pickup_prio === true);
+    if ((shipment.delivery_address || "").trim()) addEditStopRow("delivery", shipment.delivery_address, shipment.delivery_prio === true);
+  }
 
-    if (editCustomer) editCustomer.value = shipment.customer_name || "";
-    if (editPickup) editPickup.value = shipment.pickup_address || "";
-    if (editDelivery) editDelivery.value = shipment.delivery_address || "";
-    if (editType) editType.value = shipment.shipment_type || "doos";
-    if (editColli) editColli.value = String(shipment.colli_count ?? 1);
-    if (editTypeOther) editTypeOther.value = shipment.shipment_type_other || "";
-
-    toggleEditOther();
-
-    if (editOverlay) editOverlay.style.display = "flex";
+  // Open modal
+  if (editOverlay) editOverlay.style.display = "flex";
+}
 
     setTimeout(() => {
       editCustomer?.focus();
