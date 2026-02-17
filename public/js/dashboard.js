@@ -130,6 +130,30 @@ function addEditStopRow(type, address = "", prio = false) {
   editStopsWrap.appendChild(row);
 }
 
+  function normalizeStopsFromShipment(shipment) {
+  // Nieuwe manier: stops_json (jsonb) in Supabase
+  const raw = shipment.stops_json || shipment.stops || shipment.stops_jsonb;
+
+  if (Array.isArray(raw) && raw.length) {
+    return raw
+      .map((x) => ({
+        type: x.type === "delivery" ? "delivery" : "pickup",
+        address: String(x.address || x.addr || "").trim(),
+        prio: x.prio === true || x.priority === true,
+      }))
+      .filter((x) => x.address);
+  }
+
+  // Fallback: oude velden pickup_address / delivery_address
+  const p = String(shipment.pickup_address || "").trim();
+  const d = String(shipment.delivery_address || "").trim();
+
+  const out = [];
+  if (p) out.push({ type: "pickup", address: p, prio: shipment.pickup_prio === true });
+  if (d) out.push({ type: "delivery", address: d, prio: shipment.delivery_prio === true });
+  return out;
+}
+
   function makeStopRow({ type = "pickup", address = "", prio = false } = {}) {
   const row = document.createElement("div");
   row.className = "stopRow";
