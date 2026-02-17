@@ -737,9 +737,31 @@ setTimeout(() => {
     return true;
   }
 
+  // ===== Helpers voor stops uit edit modal =====
+function getStopsFromEditUI() {
+  const rows = Array.from(document.querySelectorAll("#editStopsWrap .stopRow"));
+  return rows.map(r => {
+    const type = r.getAttribute("data-type") || "delivery";
+    const address = (r.querySelector(".editStopAddress")?.value || "").trim();
+    const prio = !!r.querySelector(".editStopPrio")?.checked;
+    return { type, address, prio };
+  }).filter(s => s.address);
+}
+
+function syncPrimaryFromStops(stops) {
+  const firstPickup = stops.find(s => s.type === "pickup");
+  const firstDelivery = stops.find(s => s.type === "delivery");
+
+  if (editPickup) editPickup.value = firstPickup?.address || "";
+  if (editDelivery) editDelivery.value = firstDelivery?.address || "";
+}
+
   // ---------------- Save Edit
   async function saveEditShipment() {
     if (!currentEditShipment) return;
+
+    const stops = getStopsFromEditUI();
+    syncPrimaryFromStops(stops);
 
     const customer_name = editCustomer?.value?.trim() || "";
     const pickup_address = editPickup?.value?.trim() || "";
