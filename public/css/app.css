@@ -100,23 +100,21 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 
 /* ===== Create shipment layout ===== */
 .createRow{
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 16px;
-  align-items: start;
+  display:flex;
+  gap:20px;
+  align-items:flex-start;
 }
 
 .prioLine{
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;          /* PRIO dicht bij vinkje */
-  margin-top: 6px;   /* onder het adresveld */
-  user-select: none;
-  white-space: nowrap;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin-top:6px;
+  font-size:14px;
 }
 
 .prioLine input{
-  margin: 0;
+  margin:0;
 }
 
 /* ===== Routeplanner controls ===== */
