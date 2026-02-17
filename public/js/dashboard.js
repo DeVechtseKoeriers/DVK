@@ -140,16 +140,18 @@ function addEditStopRow(type, address = "", prio = false) {
   row.className = "stopRow";
   row.setAttribute("data-type", type);
 
-  row.innerHTML = `
-    <input class="editStopAddress" placeholder="Straat, huisnr, plaats" value="${escapeHtml(address)}" />
+ row.innerHTML = `
+  <div class="stopType">${type === "pickup" ? "Ophalen" : "Bezorgen"}</div>
 
-    <label class="prioLine">
-      <input class="editStopPrio" type="checkbox" ${prio ? "checked" : ""} />
-      <span>PRIO</span>
-    </label>
+  <input class="editStopAddress" placeholder="Straat, huisnr, plaats" value="${escapeHtml(address)}" />
 
-    <button type="button" class="stopRemove">x</button>
-  `;
+  <label class="prioLine">
+    <input class="editStopPrio" type="checkbox" ${prio ? "checked" : ""} />
+    <span>PRIO</span>
+  </label>
+
+  <button type="button" class="stopRemove">×</button>
+`;
 
   row.querySelector(".stopRemove").addEventListener("click", () => row.remove());
 
