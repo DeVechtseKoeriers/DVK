@@ -790,9 +790,10 @@ function syncPrimaryFromStops(stops) {
         pickup_address,
         delivery_address,
         shipment_type,
-        shipment_type_other: (shipment_type === "overig") ? shipment_type_other : null,
+        shipment_type_other: (shipment_type === "overig" ...
         colli_count,
-      };
+       stops: stops
+     };
 
       const { error } = await supabaseClient
         .from("shipments")
