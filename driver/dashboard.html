@@ -119,6 +119,53 @@
     <div id="map" style="height:360px;border-radius:12px;margin-top:10px;"></div>
   </div>
 
+<!-- Modal: Wijzigen zending -->
+<div id="editOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal">
+    <h2>Zending wijzigen</h2>
+
+    <p class="small" id="editShipmentInfo"></p>
+
+    <label>Klantnaam</label>
+    <input id="editCustomer" />
+
+    <label>Ophaaladres</label>
+    <input id="editPickup" />
+
+    <label>Bezorgadres</label>
+    <input id="editDelivery" />
+
+    <div style="display:flex; gap:10px;">
+      <div style="flex:1;">
+        <label>Type zending</label>
+        <select id="editType">
+          <option value="doos">Doos</option>
+          <option value="enveloppe">Enveloppe</option>
+          <option value="pallet">Pallet</option>
+          <option value="overig">Overig</option>
+        </select>
+      </div>
+
+      <div style="flex:1;">
+        <label>Aantal colli</label>
+        <input id="editColli" type="number" min="1" value="1" />
+      </div>
+    </div>
+
+    <div id="editOtherWrap" style="display:none;">
+      <label>Overig (invullen)</label>
+      <input id="editTypeOther" placeholder="Bijv. koelbox / tas / etc." />
+    </div>
+
+    <p id="editError" class="small" style="color:#b00020;"></p>
+
+    <div class="row" style="justify-content:flex-end;">
+      <button id="editCancel" type="button">Annuleren</button>
+      <button id="editSave" type="button">Opslaan</button>
+    </div>
+  </div>
+</div>  
+  
   <!-- Modal: Afgeleverd + handtekening + fotos -->
   <div id="modalOverlay" class="modal-overlay" style="display:none;">
     <div class="modal">
