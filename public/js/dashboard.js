@@ -493,19 +493,27 @@ function addEditStopRow(type, address = "", prio = false) {
   toggleEditOther();
 
   // ===== Stops (nieuw) =====
-  // We vullen hier ALLE stops (pickup + deliveries) in de edit modal
-  if (editStopsWrap) editStopsWrap.innerHTML = "";
+// We vullen hier ALLE stops (pickup + deliveries) in de edit modal
+if (editStopsWrap) editStopsWrap.innerHTML = "";
 
-  const stops = Array.isArray(shipment.stops) ? shipment.stops : [];
+const stops = Array.isArray(shipment.stops) ? shipment.stops : [];
 
 if (stops.length) {
   for (const st of stops) {
-    addEditStopRow(st.type || "delivery", st.address || "", !!st.priority);
+    addEditStopRow(
+      st.type || "delivery",
+      st.address || "",
+      !!st.priority
+    );
   }
 } else {
   // fallback voor oude records zonder stops:
-  if ((shipment.pickup_address || "").trim()) addEditStopRow("pickup", shipment.pickup_address, !!shipment.pickup_prio);
-  if ((shipment.delivery_address || "").trim()) addEditStopRow("delivery", shipment.delivery_address, !!shipment.delivery_prio);
+  if ((shipment.pickup_address || "").trim()) {
+    addEditStopRow("pickup", shipment.pickup_address || "", !!shipment.pickup_prio);
+  }
+  if ((shipment.delivery_address || "").trim()) {
+    addEditStopRow("delivery", shipment.delivery_address || "", !!shipment.delivery_prio);
+  }
 }
     
 // Edit modal – add stop buttons
