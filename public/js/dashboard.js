@@ -2,12 +2,12 @@
 //
 // Features:
 // - Tabs Active/Archived
-// - Create shipment
+// - Create shipment (single OR multi-stop)
 // - Status buttons + Delivered modal
 // - Timeline via shipment_events
 // - PDF afleverbon
 // - Google Places Autocomplete (bedrijven + adressen)
-// - Routeplanner + kaart (pickup vóór delivery, eindigt altijd met bezorgen)
+// - Routeplanner + kaart (pickups vóór deliveries per zending, eindigt altijd met bezorgen)
 
 (() => {
   // ---------------- DOM
@@ -20,6 +20,17 @@
   const createMsg = document.getElementById("createMsg");
   const shipmentTypeEl = document.getElementById("shipment_type");
   const otherWrap = document.getElementById("otherWrap");
+
+  // NEW: Stops UI (option B)
+  const stopsWrap = document.getElementById("stopsWrap");           // container for stop rows
+  const btnAddPickup = document.getElementById("btnAddPickup");     // add pickup stop
+  const btnAddDelivery = document.getElementById("btnAddDelivery"); // add delivery stop
+
+  // Fallback inputs (old single fields)
+  const legacyPickupInput = document.getElementById("pickup_address");
+  const legacyDeliveryInput = document.getElementById("delivery_address");
+  const legacyPickupPrio = document.getElementById("pickup_prio");
+  const legacyDeliveryPrio = document.getElementById("delivery_prio");
 
   // Delivered modal
   const overlay = document.getElementById("modalOverlay");
@@ -121,6 +132,130 @@
     });
   }
 
+  // ===================== MULTI-STOP UI (Option B) =====================
+  function hasStopsUI() {
+    return !!(stopsWrap && (btnAddPickup || btnAddDelivery));
+  }
+
+  function stopRowTemplate({ type = "pickup", addr = "", priority = false } = {}) {
+    // type: pickup|delivery
+    const row = document.createElement("div");
+    row.className = "stopRow";
+    row.dataset.type = type;
+
+    const label = document.createElement("div");
+    label.className = "stopLabel";
+    label.textContent = type === "pickup" ? "Ophaaladres" : "Bezorgadres";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "stopAddress";
+    input.placeholder = "Straat, huisnr, plaats";
+    input.value = addr || "";
+    input.autocomplete = "off";
+
+    const prio = document.createElement("label");
+    prio.className = "stopPrio";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "stopPriority";
+    cb.checked = !!priority;
+
+    const sp = document.createElement("span");
+    sp.textContent = "PRIO";
+    prio.appendChild(cb);
+    prio.appendChild(sp);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "stopRemove";
+    del.textContent = "×";
+    del.title = "Verwijderen";
+    del.addEventListener("click", () => {
+      row.remove();
+      // autocomplete opnieuw niet nodig; route/calc kan wel auto:
+      if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
+    });
+
+    row.appendChild(label);
+    row.appendChild(input);
+    row.appendChild(prio);
+    row.appendChild(del);
+
+    return row;
+  }
+
+  function ensureAtLeastDefaultStops() {
+    if (!hasStopsUI()) return;
+
+    const existing = stopsWrap.querySelectorAll(".stopRow");
+    if (existing.length > 0) return;
+
+    // Start met 1 pickup + 1 delivery
+    stopsWrap.appendChild(stopRowTemplate({ type: "pickup" }));
+    stopsWrap.appendChild(stopRowTemplate({ type: "delivery" }));
+
+    // Autocomplete koppelen (als maps al klaar is)
+    if (window.__dvkMapsReady) initAutocomplete();
+  }
+
+  function addStop(type) {
+    if (!stopsWrap) return;
+    stopsWrap.appendChild(stopRowTemplate({ type }));
+    if (window.__dvkMapsReady) initAutocomplete();
+  }
+
+  if (btnAddPickup) btnAddPickup.addEventListener("click", () => addStop("pickup"));
+  if (btnAddDelivery) btnAddDelivery.addEventListener("click", () => addStop("delivery"));
+
+  function getStopsFromUI() {
+    if (!hasStopsUI()) return null;
+
+    const rows = [...stopsWrap.querySelectorAll(".stopRow")];
+    const stops = rows
+      .map((r) => {
+        const type = r.dataset.type === "delivery" ? "delivery" : "pickup";
+        const addr = r.querySelector(".stopAddress")?.value?.trim() || "";
+        const priority = r.querySelector(".stopPriority")?.checked || false;
+        return { type, addr, priority };
+      })
+      .filter((s) => !!s.addr);
+
+    return stops;
+  }
+
+  function normalizeStops(stops) {
+    // Zorg dat:
+    // - min 2 stops
+    // - min 1 pickup en min 1 delivery
+    // - pickups vóór deliveries (in opslag)
+    const clean = (stops || [])
+      .map((s) => ({
+        type: s.type === "delivery" ? "delivery" : "pickup",
+        addr: (s.addr || "").trim(),
+        priority: !!s.priority,
+      }))
+      .filter((s) => s.addr);
+
+    const pickups = clean.filter((s) => s.type === "pickup");
+    const deliveries = clean.filter((s) => s.type === "delivery");
+
+    return [...pickups, ...deliveries];
+  }
+
+  function deriveLegacyFromStops(stops) {
+    const pickups = stops.filter((s) => s.type === "pickup");
+    const deliveries = stops.filter((s) => s.type === "delivery");
+
+    const pickup_address = pickups[0]?.addr || "";
+    const delivery_address = deliveries[deliveries.length - 1]?.addr || "";
+
+    const pickup_prio = !!pickups[0]?.priority;
+    const delivery_prio = !!deliveries[deliveries.length - 1]?.priority;
+
+    return { pickup_address, delivery_address, pickup_prio, delivery_prio };
+  }
+
   // ---------------- Signature pad (Safari proof)
   let drawing = false;
   let hasSignature = false;
@@ -204,10 +339,21 @@
         ? (shipment.shipment_type_other || "overig")
         : (shipment.shipment_type || "");
 
+    // Toon netjes eerste->laatste, maar als stops bestaan: toon count
+    const stops = Array.isArray(shipment.stops) ? shipment.stops : null;
+    const legacyLine = `${escapeHtml(shipment.pickup_address)} → ${escapeHtml(shipment.delivery_address)}`;
+    let routeLine = legacyLine;
+
+    if (stops?.length) {
+      const firstP = stops.find((x) => x.type === "pickup")?.addr || shipment.pickup_address || "";
+      const lastD = [...stops].reverse().find((x) => x.type === "delivery")?.addr || shipment.delivery_address || "";
+      routeLine = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
+    }
+
     if (modalShipmentInfo) {
       modalShipmentInfo.innerHTML = `
         <b>${escapeHtml(shipment.track_code)}</b><br/>
-        ${escapeHtml(shipment.pickup_address)} → ${escapeHtml(shipment.delivery_address)}<br/>
+        ${routeLine}<br/>
         <span class="small">Type: ${escapeHtml(typeText)} • Colli: ${shipment.colli_count ?? ""}</span>
       `;
     }
@@ -422,7 +568,6 @@
 
       if (listEl) listEl.innerHTML = "<small>Geen zendingen.</small>";
 
-      // auto reroute (leegt kaart)
       if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
       return;
     }
@@ -430,23 +575,23 @@
     const active = [];
     const archived = [];
     for (const s of data) {
+      // maak stops usable als array (soms komt JSON als string terug, afhankelijk van setup)
+      if (typeof s.stops === "string") {
+        try { s.stops = JSON.parse(s.stops); } catch { /* ignore */ }
+      }
       if (s.archived_at) archived.push(s);
       else active.push(s);
     }
 
-    // ✅ cache voor routeplanner
     activeShipmentsCache = active;
     window.activeShipmentsCache = active;
 
-    // ✅ Auto route plannen zodra zendingen geladen zijn (als autoRoute aan staat)
-    // (zet 'm pas na cache, zodat planOptimalRoute de juiste shipments ziet)
     setTimeout(() => {
       if (autoRouteEl?.checked && window.__dvkMapsReady) {
         planOptimalRoute();
       }
     }, 400);
 
-    // UI
     if (listEl) {
       if (active.length === 0) listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
       else for (const s of active) listEl.appendChild(renderShipmentCard(s));
@@ -457,7 +602,6 @@
       else for (const s of archived) listArchivedEl.appendChild(renderShipmentCard(s));
     }
 
-    // ✅ auto reroute (bij statuswijzigingen e.d.)
     if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
   }
 
@@ -516,12 +660,34 @@
       doc.text(`Colli: ${s.colli_count ?? "-"}`, left, y); y += 8;
       doc.text(`Status: ${labelStatus(s.status)}`, left, y); y += 10;
 
-      ensureSpace(20);
-      doc.text(`Ophaaladres: ${s.pickup_address || "-"}`, left, y); y += 8;
-      doc.text(`Bezorgadres: ${s.delivery_address || "-"}`, left, y); y += 10;
+      // Stops print (als aanwezig)
+      const stops = Array.isArray(s.stops) ? s.stops : null;
+      if (stops?.length) {
+        ensureSpace(10);
+        doc.text(`Stops (${stops.length}):`, left, y); y += 8;
+        doc.setFontSize(11);
+        for (const st of stops) {
+          ensureSpace(7);
+          const tag = st.type === "pickup" ? "Ophalen" : "Bezorgen";
+          const pr = st.priority ? " [PRIO]" : "";
+          const line = `${tag}: ${st.addr}${pr}`;
+          const lines = doc.splitTextToSize(line, 170);
+          for (const ln of lines) {
+            ensureSpace(6);
+            doc.text(ln, left + 4, y);
+            y += 6;
+          }
+          y += 1;
+        }
+        doc.setFontSize(12);
+        y += 4;
+      } else {
+        ensureSpace(20);
+        doc.text(`Ophaaladres: ${s.pickup_address || "-"}`, left, y); y += 8;
+        doc.text(`Bezorgadres: ${s.delivery_address || "-"}`, left, y); y += 10;
+      }
 
       doc.text(`Notitie: ${s.delivered_note || "-"}`, left, y); y += 12;
-
       doc.text(`Ontvanger: ${s.receiver_name || "-"}`, left, y); y += 10;
 
       doc.text("Handtekening:", left, y); y += 4;
@@ -637,10 +803,19 @@
 
     const trackLink = `/DVK/track/?code=${encodeURIComponent(s.track_code)}`;
 
+    const stops = Array.isArray(s.stops) ? s.stops : null;
+    let line = `${escapeHtml(s.pickup_address)} → ${escapeHtml(s.delivery_address)}`;
+
+    if (stops?.length) {
+      const firstP = stops.find((x) => x.type === "pickup")?.addr || s.pickup_address || "";
+      const lastD = [...stops].reverse().find((x) => x.type === "delivery")?.addr || s.delivery_address || "";
+      line = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
+    }
+
     div.innerHTML = `
       <div>
         <strong>${escapeHtml(s.track_code)}</strong> — ${escapeHtml(s.customer_name)}<br/>
-        <small>${escapeHtml(s.pickup_address)} → ${escapeHtml(s.delivery_address)}</small><br/>
+        <small>${line}</small><br/>
         <small>Type: ${escapeHtml(typeText)} • Colli: ${s.colli_count ?? ""} • Status: <b>${escapeHtml(s.status)}</b></small><br/>
         <small>Track & Trace: <a href="${trackLink}" target="_blank">${trackLink}</a></small>
         <div class="actions"></div>
@@ -698,17 +873,32 @@
     const supabaseClient = await ensureClient();
     msg("Bezig...");
 
-    const customer_name = document.getElementById("customer_name")?.value.trim() || "";
-    const pickup_address = document.getElementById("pickup_address")?.value.trim() || "";
-    const delivery_address = document.getElementById("delivery_address")?.value.trim() || "";
+    const customer_name = document.getElementById("customer_name")?.value?.trim() || "";
     const shipment_type = document.getElementById("shipment_type")?.value || "doos";
-    const shipment_type_other = document.getElementById("shipment_type_other")?.value.trim() || null;
+    const shipment_type_other = document.getElementById("shipment_type_other")?.value?.trim() || null;
     const colli_count = parseInt(document.getElementById("colli_count")?.value || "1", 10);
-    const pickup_prio = document.getElementById("pickup_prio")?.checked || false;
-    const delivery_prio = document.getElementById("delivery_prio")?.checked || false;
 
-    if (!customer_name || !pickup_address || !delivery_address) {
-      msg("Vul klantnaam + ophaaladres + bezorgadres in.");
+    // 1) Verzamel stops (nieuw of legacy)
+    let stops = null;
+
+    if (hasStopsUI()) {
+      stops = normalizeStops(getStopsFromUI() || []);
+    } else {
+      // legacy
+      const pickup_address = legacyPickupInput?.value?.trim() || "";
+      const delivery_address = legacyDeliveryInput?.value?.trim() || "";
+      const pickup_prio = legacyPickupPrio?.checked || false;
+      const delivery_prio = legacyDeliveryPrio?.checked || false;
+
+      stops = normalizeStops([
+        { type: "pickup", addr: pickup_address, priority: pickup_prio },
+        { type: "delivery", addr: delivery_address, priority: delivery_prio },
+      ]);
+    }
+
+    // Validaties
+    if (!customer_name) {
+      msg("Vul klantnaam in.");
       return;
     }
     if (shipment_type === "overig" && !shipment_type_other) {
@@ -716,27 +906,53 @@
       return;
     }
 
-    const { data, error } = await supabaseClient
+    const hasPickup = stops.some((s) => s.type === "pickup");
+    const hasDelivery = stops.some((s) => s.type === "delivery");
+    if (!stops.length || !hasPickup || !hasDelivery) {
+      msg("Voeg minimaal 1 ophaaladres én 1 bezorgadres toe.");
+      return;
+    }
+
+    // Legacy velden blijven gevuld (voor overzicht/track/pdf/compat)
+    const legacy = deriveLegacyFromStops(stops);
+
+    // 2) Insert (probeer met stops kolom; als die niet bestaat -> fallback zonder stops)
+    const baseInsert = {
+      driver_id: currentUserId,
+      customer_name,
+      shipment_type,
+      shipment_type_other: shipment_type === "overig" ? shipment_type_other : null,
+      colli_count,
+      pickup_address: legacy.pickup_address,
+      delivery_address: legacy.delivery_address,
+      pickup_prio: legacy.pickup_prio,
+      delivery_prio: legacy.delivery_prio,
+      status: "AANGEMAAKT",
+    };
+
+    let data = null;
+
+    // eerst proberen met stops
+    let r = await supabaseClient
       .from("shipments")
-      .insert({
-        driver_id: currentUserId,
-        customer_name,
-        pickup_address,
-        delivery_address,
-        shipment_type,
-        shipment_type_other: shipment_type === "overig" ? shipment_type_other : null,
-        colli_count,
-        pickup_prio,
-        delivery_prio,
-        status: "AANGEMAAKT",
-      })
+      .insert({ ...baseInsert, stops })
       .select("*")
       .single();
 
-    if (error) {
-      msg("Fout: " + error.message);
+    if (r.error && /column/i.test(r.error.message)) {
+      // stops kolom bestaat niet -> fallback
+      r = await supabaseClient
+        .from("shipments")
+        .insert(baseInsert)
+        .select("*")
+        .single();
+    }
+
+    if (r.error) {
+      msg("Fout: " + r.error.message);
       return;
     }
+    data = r.data;
 
     // Event: AANGEMAAKT (niet dubbel)
     try {
@@ -756,18 +972,26 @@
 
     msg(`Aangemaakt: ${data.track_code}`);
 
-    // formulier leegmaken
+    // 3) Form reset
     document.getElementById("customer_name").value = "";
-    document.getElementById("pickup_address").value = "";
-    document.getElementById("delivery_address").value = "";
     document.getElementById("colli_count").value = "1";
     document.getElementById("shipment_type").value = "doos";
 
     const other = document.getElementById("shipment_type_other");
     if (other) other.value = "";
+    if (otherWrap) otherWrap.style.display = "none";
 
-    const wrap = document.getElementById("otherWrap");
-    if (wrap) wrap.style.display = "none";
+    if (hasStopsUI()) {
+      // clear all stop rows and set default 1+1 again
+      stopsWrap.innerHTML = "";
+      ensureAtLeastDefaultStops();
+    } else {
+      // legacy clear
+      if (legacyPickupInput) legacyPickupInput.value = "";
+      if (legacyDeliveryInput) legacyDeliveryInput.value = "";
+      if (legacyPickupPrio) legacyPickupPrio.checked = false;
+      if (legacyDeliveryPrio) legacyDeliveryPrio.checked = false;
+    }
 
     await loadShipments(currentUserId);
   }
@@ -842,10 +1066,6 @@
 
   // ================= AUTOCOMPLETE (start pas NA maps loaded) =================
   function initAutocomplete() {
-    const pickupInput = document.getElementById("pickup_address");
-    const deliveryInput = document.getElementById("delivery_address");
-    if (!pickupInput && !deliveryInput) return;
-
     if (!window.google?.maps?.places?.Autocomplete) {
       console.warn("Google Places Autocomplete niet beschikbaar (check libraries=places).");
       return;
@@ -869,6 +1089,8 @@
 
     function attach(input) {
       if (!input) return;
+      if (input.dataset.__dvkAcAttached === "1") return;
+
       input.setAttribute("autocomplete", "off");
 
       const ac = new google.maps.places.Autocomplete(input, options);
@@ -889,10 +1111,19 @@
           if (full) input.value = full;
         }
       });
+
+      input.dataset.__dvkAcAttached = "1";
     }
 
-    attach(pickupInput);
-    attach(deliveryInput);
+    // NEW: stop inputs
+    if (hasStopsUI()) {
+      const inputs = stopsWrap.querySelectorAll(".stopAddress");
+      inputs.forEach((i) => attach(i));
+    } else {
+      // legacy inputs
+      attach(legacyPickupInput);
+      attach(legacyDeliveryInput);
+    }
   }
 
   // ================= ROUTEPLANNER + MAP =================
@@ -905,26 +1136,22 @@
   }
 
   function renderRouteList(stops) {
-  if (!routeListEl) return;
-  routeListEl.innerHTML = "";
+    if (!routeListEl) return;
+    routeListEl.innerHTML = "";
 
-  const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.marginBottom = "6px";
-  title.textContent = "Optimale volgorde:";
-  routeListEl.appendChild(title);
+    const title = document.createElement("div");
+    title.style.fontWeight = "700";
+    title.style.marginBottom = "6px";
+    title.textContent = "Optimale volgorde:";
+    routeListEl.appendChild(title);
 
-  stops.forEach((s, i) => {
-    const row = document.createElement("div");
-
-    const prio = s.priority
-      ? ' <span style="color:#c00;font-weight:800;">P</span>'
-      : "";
-
-    row.innerHTML = `${i + 1}. ${escapeHtml(s.label)}${prio}`;
-    routeListEl.appendChild(row);
-  });
-}
+    stops.forEach((s, i) => {
+      const row = document.createElement("div");
+      const prio = s.priority ? ' <span style="color:#c00;font-weight:800;">P</span>' : "";
+      row.innerHTML = `${i + 1}. ${escapeHtml(s.label)}${prio}`;
+      routeListEl.appendChild(row);
+    });
+  }
 
   function ensureMapsReady() {
     if (!window.google?.maps) throw new Error("Google Maps API niet geladen.");
@@ -956,15 +1183,41 @@
     for (const s of (window.activeShipmentsCache || [])) {
       if (s.archived_at) continue;
 
+      // prefer stops[] als aanwezig
+      let shipStops = null;
+      if (typeof s.stops === "string") {
+        try { shipStops = JSON.parse(s.stops); } catch { shipStops = null; }
+      } else if (Array.isArray(s.stops)) {
+        shipStops = s.stops;
+      }
+
+      if (Array.isArray(shipStops) && shipStops.length) {
+        const normalized = normalizeStops(shipStops);
+
+        // maak stop-id’s stabiel per shipment + index
+        normalized.forEach((st, idx) => {
+          const id = `${st.type}_${s.id}_${idx}`;
+          const tag = st.type === "pickup" ? "Ophalen" : "Bezorgen";
+          stops.push({
+            id,
+            shipmentId: s.id,
+            type: st.type,
+            addr: (st.addr || "").trim(),
+            priority: st.priority === true,
+            label: `${tag}: ${st.addr} (${s.track_code || ""})`,
+          });
+        });
+
+        continue;
+      }
+
+      // fallback legacy
       const p = (s.pickup_address || "").trim();
       const d = (s.delivery_address || "").trim();
       if (!p || !d) continue;
 
-      const pickId = `pick_${s.id}`;
-      const delId = `del_${s.id}`;
-
       stops.push({
-        id: pickId,
+        id: `pick_${s.id}`,
         shipmentId: s.id,
         type: "pickup",
         addr: p,
@@ -973,7 +1226,7 @@
       });
 
       stops.push({
-        id: delId,
+        id: `del_${s.id}`,
         shipmentId: s.id,
         type: "delivery",
         addr: d,
@@ -1015,14 +1268,23 @@
     return el.duration?.value ?? Number.POSITIVE_INFINITY;
   }
 
-  // Greedy met constraint: delivery pas na pickup + eindigt altijd met delivery
+  // Greedy met constraint:
+  // - deliveries pas nadat ALLE pickups van die shipment zijn geweest
+  // - eindigt altijd met delivery (als er deliveries bestaan)
   async function computeOrderedStopsGreedy(stops) {
     if (!stops.length) return [];
 
     const addrs = [BASE_ADDRESS, ...stops.map((s) => s.addr)];
     const matrix = await buildTimeMatrix(addrs);
 
-    const donePickups = new Set(); // shipmentId
+    const pickupNeed = new Map(); // shipmentId -> pickup count
+    for (const s of stops) {
+      if (s.type !== "pickup") continue;
+      pickupNeed.set(s.shipmentId, (pickupNeed.get(s.shipmentId) || 0) + 1);
+    }
+
+    const donePickupsCount = new Map(); // shipmentId -> how many pickups done
+
     const remaining = new Map(); // id->stop
     stops.forEach((s) => remaining.set(s.id, s));
 
@@ -1033,11 +1295,21 @@
 
     while (remaining.size > 0) {
       const candidates = [];
+
       for (const s of remaining.values()) {
-        if (s.type === "pickup") candidates.push(s);
-        if (s.type === "delivery" && donePickups.has(s.shipmentId)) candidates.push(s);
+        if (s.type === "pickup") {
+          candidates.push(s);
+          continue;
+        }
+
+        // delivery: pas als alle pickups gedaan zijn
+        const need = pickupNeed.get(s.shipmentId) || 0;
+        const done = donePickupsCount.get(s.shipmentId) || 0;
+        if (need === 0 || done >= need) candidates.push(s);
       }
+
       if (!candidates.length) {
+        // safety fallback: neem alles
         for (const s of remaining.values()) candidates.push(s);
       }
 
@@ -1048,7 +1320,7 @@
         const cIndex = idxOfStop(c);
         let cost = getDurationSeconds(matrix, currentIndex, cIndex);
 
-        // 👇 PRIORITEIT BOOST
+        // PRIORITEIT BOOST
         if (c.priority) cost = cost * 0.3;
 
         if (cost < bestCost) {
@@ -1060,7 +1332,9 @@
       ordered.push(best);
       remaining.delete(best.id);
 
-      if (best.type === "pickup") donePickups.add(best.shipmentId);
+      if (best.type === "pickup") {
+        donePickupsCount.set(best.shipmentId, (donePickupsCount.get(best.shipmentId) || 0) + 1);
+      }
 
       currentIndex = idxOfStop(best);
     }
@@ -1093,7 +1367,7 @@
       origin: BASE_ADDRESS,
       destination: BASE_ADDRESS,
       waypoints,
-      optimizeWaypoints: false, // anders sloopt Google de pickup/delivery volgorde
+      optimizeWaypoints: false,
       travelMode: google.maps.TravelMode.DRIVING,
     };
 
@@ -1179,7 +1453,6 @@
       ensureMapInit();
       initAutocomplete();
 
-      // auto-route direct als aan
       if (autoRouteEl?.checked) {
         planOptimalRoute();
       }
@@ -1192,6 +1465,9 @@
   (async () => {
     const user = await requireAuth();
     currentUserId = user.id;
+
+    // Maak default stops (als UI bestaat)
+    ensureAtLeastDefaultStops();
 
     const btn = document.getElementById("btnCreate");
     if (btn) {
