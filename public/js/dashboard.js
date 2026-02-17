@@ -594,6 +594,63 @@
     return true;
   }
 
+  // ---------------- Save Edit
+  async function saveEditShipment() {
+    if (!currentEditShipment) return;
+
+    const customer_name = editCustomer?.value?.trim() || "";
+    const pickup_address = editPickup?.value?.trim() || "";
+    const delivery_address = editDelivery?.value?.trim() || "";
+    const shipment_type = editType?.value || "doos";
+    const shipment_type_other = editTypeOther?.value?.trim() || null;
+    const colli_count = parseInt(editColli?.value || "1", 10);
+
+    if (!customer_name || !pickup_address || !delivery_address) {
+      if (editError) editError.textContent = "Vul klantnaam + ophaaladres + bezorgadres in.";
+      return;
+    }
+    if (shipment_type === "overig" && !shipment_type_other) {
+      if (editError) editError.textContent = "Vul bij 'overig' een type in.";
+      return;
+    }
+
+    if (editSave) editSave.disabled = true;
+    if (editError) editError.textContent = "Opslaan...";
+
+    try {
+      const supabaseClient = await ensureClient();
+
+      const payload = {
+        customer_name,
+        pickup_address,
+        delivery_address,
+        shipment_type,
+        shipment_type_other: (shipment_type === "overig") ? shipment_type_other : null,
+        colli_count,
+      };
+
+      const { error } = await supabaseClient
+        .from("shipments")
+        .update(payload)
+        .eq("id", currentEditShipment.id)
+        .eq("driver_id", currentUserId);
+
+      if (error) throw error;
+
+      if (editError) editError.textContent = "";
+      closeEditModal();
+
+      await loadShipments(currentUserId); // refresh lijst + auto route
+    } catch (e) {
+      console.error(e);
+      if (editError) editError.textContent = "Fout: " + (e?.message || e);
+    } finally {
+      if (editSave) editSave.disabled = false;
+    }
+  }
+
+  if (editSave) editSave.addEventListener("click", saveEditShipment);
+
   // ---------------- Buttons helper
   function button(text, onClick) {
     const b = document.createElement("button");
@@ -897,6 +954,7 @@
 
     if (!s.archived_at) {
       actions.append(button("Verwijderen", async () => deleteShipment(s)));
+      actions.append(button("Wijzigen", () => openEditModal(s)));
 
       actions.append(button("Wijzigen", async () => {
   // Simpele bewerkflow via prompts (later kunnen we dit mooier maken met een modal)
