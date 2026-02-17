@@ -18,27 +18,18 @@
       <input id="customer_name" placeholder="Bijv. SDX / klantnaam" />
     </div>
 
-    <!-- Ophaaladres -->
-    <div>
-      <label>Ophaaladres</label><br/>
-      <input id="pickup_address" placeholder="Straat, huisnr, plaats" />
-
-      <label class="prioLine">
-        <input type="checkbox" id="pickup_prio" />
-        <span>PRIO</span>
-      </label>
+    <div class="stopsCol">
+  <div class="stopsHeader">
+    <div><b>Stops</b></div>
+    <div class="stopsBtns">
+      <button id="btnAddPickup" type="button">+ Ophalen</button>
+      <button id="btnAddDelivery" type="button">+ Bezorgen</button>
     </div>
+  </div>
 
-    <!-- Bezorgadres -->
-    <div>
-      <label>Bezorgadres</label><br/>
-      <input id="delivery_address" placeholder="Straat, huisnr, plaats" />
-
-      <label class="prioLine">
-        <input type="checkbox" id="delivery_prio" />
-        <span>PRIO</span>
-      </label>
-    </div>
+  <div id="stopsWrap" class="stopsWrap"></div>
+  <small class="muted">Tip: zet PRIO per stop (staat netjes naast vinkje).</small>
+</div>
 
   </div>
 
