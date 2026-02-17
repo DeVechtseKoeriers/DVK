@@ -46,6 +46,11 @@
   const editCancel = document.getElementById("editCancel");
   const editSave = document.getElementById("editSave");
 
+  // Edit modal - stops UI
+  const editStopsWrap = document.getElementById("editStopsWrap");
+  const btnEditAddPickup = document.getElementById("btnEditAddPickup");
+  const btnEditAddDelivery = document.getElementById("btnEditAddDelivery");
+
   // Delivered modal
   const overlay = document.getElementById("modalOverlay");
   const modalShipmentInfo = document.getElementById("modalShipmentInfo");
@@ -100,6 +105,48 @@
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
   }
+
+  // ===== Edit stops helper =====
+function addEditStopRow(type, address = "", prio = false) {
+  if (!editStopsWrap) return;
+
+  const row = document.createElement("div");
+  row.className = "stopRow";
+  row.setAttribute("data-type", type);
+
+  row.innerHTML = `
+    <input class="editStopAddress" placeholder="Straat, huisnr, plaats" value="${escapeHtml(address)}" />
+
+    <label class="prioLine">
+      <input class="editStopPrio" type="checkbox" ${prio ? "checked" : ""} />
+      <span>PRIO</span>
+    </label>
+
+    <button type="button" class="stopRemove">x</button>
+  `;
+
+  row.querySelector(".stopRemove").addEventListener("click", () => row.remove());
+
+  editStopsWrap.appendChild(row);
+}
+
+  function makeStopRow({ type = "pickup", address = "", prio = false } = {}) {
+  const row = document.createElement("div");
+  row.className = "stopRow";
+  row.dataset.type = type;
+
+  row.innerHTML = `
+    <input class="stopAddress" placeholder="Straat, huisnr, plaats" value="${escapeHtml(address)}" />
+    <label class="prioLine">
+      <input class="stopPrio" type="checkbox" ${prio ? "checked" : ""} />
+      <span>PRIO</span>
+    </label>
+    <button type="button" class="stopRemove">x</button>
+  `;
+
+  row.querySelector(".stopRemove").addEventListener("click", () => row.remove());
+  return row;
+}
 
   function setTab(tab) {
     currentTab = tab;
