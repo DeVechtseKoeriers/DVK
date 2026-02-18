@@ -1308,13 +1308,21 @@
     try {
       const supabaseClient = await ensureClient();
       supabaseClient
-        .channel("shipments_changes")
-        .on("postgres_changes", { event: "*", schema: "public", table: "shipments", filter: `driver_id=eq.${currentUserId}` }, () => {
-          loadShipments(currentUserId);
-        })
-        .subscribe();
+  .channel("shipments_changes")
+  .on(
+    "postgres_changes",
+    {
+      event: "*",
+      schema: "public",
+      table: "shipments",
+      filter: `driver_id=eq.${currentUserId}`
+    },
+    () => {
+      loadShipments(currentUserId);
+    }
+  )
+  .subscribe();
     } catch (e) {
       console.warn("Realtime subscribe skipped:", e);
     }
-  })();
-
+    })();
