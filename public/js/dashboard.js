@@ -904,16 +904,23 @@ for (const shipment of data) {
       return;
     }
 
-    const active = [];
-    const archived = [];
-    for (const s of data) {
-      // maak stops usable als array (soms komt JSON als string terug, afhankelijk van setup)
-      if (typeof s.stops === "string") {
-        try { s.stops = JSON.parse(s.stops); } catch { /* ignore */ }
-      }
-      if (s.archived_at) archived.push(s);
-      else active.push(s);
-    }
+    const normalized = (data || []).map((s) => {
+  // maak stops usable als array (soms komt JSON als string)
+  if (typeof s.stops === "string") {
+    try { s.stops = JSON.parse(s.stops); } catch {}
+  }
+  return s;
+});
+
+const archived = normalized.filter(s =>
+  !!s.archived_at || s.status === "GEARCHIVEERD"
+);
+
+const active = normalized.filter(s =>
+  !s.archived_at &&
+  s.status !== "AFGELEVERD" &&
+  s.status !== "GEARCHIVEERD"
+);
 
     activeShipmentsCache = active;
     window.activeShipmentsCache = active;
