@@ -365,12 +365,25 @@
         delivery_prio: legacy.delivery_prio,
       });
 
-      try { await addEvent(shipment.id, `STOP_${newStatus}`, `Stop ${stopIndex + 1}: ${stops[stopIndex].address}`, stopIndex); } catch {}
-      await loadShipments(currentUserId);
-    } catch (e) {
-      alert("Stop update fout: " + (e?.message || e));
-    }
-  }
+      try {
+  // Track & Trace kan alleen deze standaard statussen lezen:
+  // OPGEHAALD / ONDERWEG / PROBLEEM / AFGELEVERD
+  const stop = stops?.[stopIndex] || null;
+
+  const stopLabel = stop
+    ? `${stop.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${stop.address || stop.addr || ""}`
+    : "";
+
+  await addEvent(
+    shipment.id,
+    newStatus, // <-- GEEN STOP_ prefix meer!
+    stopLabel ? `Stop ${stopIndex + 1} • ${stopLabel}` : null
+  );
+
+  await loadShipments(currentUserId);
+} catch (e) {
+  alert("Stop update fout: " + (e?.message || e));
+}
 
   // ---------------- Delete
   async function deleteShipment(shipment) {
