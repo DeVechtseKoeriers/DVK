@@ -773,10 +773,6 @@ function syncPrimaryFromStops(stops) {
     const hasPickup = stops.some(s => (s.type === "pickup") && (s.address || "").trim());
 const hasDelivery = stops.some(s => (s.type === "delivery") && (s.address || "").trim());
 
-    // Validatie: klantnaam + minimaal 1 pickup + minimaal 1 delivery in stops
-const hasPickup = Array.isArray(stops) && stops.some(s => (s.type === "pickup") && (s.address || "").trim());
-const hasDelivery = Array.isArray(stops) && stops.some(s => (s.type === "delivery") && (s.address || "").trim());
-
 if (!customer_name || !hasPickup || !hasDelivery) {
   if (editError) {
     editError.textContent = "Vul klantnaam + minimaal 1 ophaaladres + minimaal 1 bezorgadres in.";
