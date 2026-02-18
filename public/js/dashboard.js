@@ -1353,4 +1353,4 @@
       console.error("initMaps error:", e);
     }
   };
-})(); // <-- sluit de grote IIFE af (de allereerste (() => { ... })
+})();
