@@ -1260,12 +1260,17 @@ const active = normalized.filter(s =>
       return;
     }
 
-    const hasPickup = stops.some((s) => s.type === "pickup");
-    const hasDelivery = stops.some((s) => s.type === "delivery");
-    if (!stops.length || !hasPickup || !hasDelivery) {
-      msg("Voeg minimaal 1 ophaaladres én 1 bezorgadres toe.");
-      return;
-    }
+    const norm = (v) => (v ?? "").toString().trim().toLowerCase();
+const getType = (s) => norm(s.type || s.stop_type || s.kind);
+const getAddr = (s) => (s.address || s.stop_address || s.addr || "").toString().trim();
+
+const hasPickup = stops.some((s) => ["pickup", "ophalen"].includes(getType(s)) && getAddr(s));
+const hasDelivery = stops.some((s) => ["delivery", "bezorgen"].includes(getType(s)) && getAddr(s));
+
+if (!Array.isArray(stops) || !stops.length || !hasPickup || !hasDelivery) {
+  msg("Voeg minimaal 1 ophaaladres én 1 bezorgadres toe.");
+  return;
+}
 
     // Legacy velden blijven gevuld (voor overzicht/track/pdf/compat)
     const legacy = deriveLegacyFromStops(stops);
