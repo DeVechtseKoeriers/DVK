@@ -825,6 +825,39 @@ function syncPrimaryFromStops(stops) {
     return b;
   }
 
+  // ---- Stops helpers ----
+function normalizeStops(shipment) {
+  const stops = Array.isArray(shipment?.stops) ? shipment.stops : [];
+
+  // Als er al stops zijn: opschonen en teruggeven
+  if (stops.length) {
+    return stops
+      .map((st) => ({
+        type: st.type || st.stop_type || st.kind || "delivery",
+        address: st.address || st.stop_address || st.addr || "",
+        prio: !!(st.prio ?? st.priority ?? st.is_prio ?? st.is_priority),
+        status: st.status || null,
+        id: st.id || null
+      }))
+      .filter((st) => (st.address || "").trim().length > 0);
+  }
+
+  // Fallback: oude shipments zonder stops
+  const out = [];
+  const pu = (shipment?.pickup_address || "").trim();
+  const de = (shipment?.delivery_address || "").trim();
+  if (pu) out.push({ type: "pickup", address: pu, prio: false, status: null, id: null });
+  if (de) out.push({ type: "delivery", address: de, prio: false, status: null, id: null });
+  return out;
+}
+
+function getStopsSummary(shipment) {
+  const stops = normalizeStops(shipment);
+  const first = stops[0]?.address || "";
+  const last = stops[stops.length - 1]?.address || "";
+  return { stops, first, last, count: stops.length };
+}
+
   // ---------------- Load Shipments
   async function loadShipments(driverId) {
     const supabaseClient = await ensureClient();
@@ -842,6 +875,12 @@ function syncPrimaryFromStops(stops) {
       if (listEl) listEl.innerHTML = "Fout: " + error.message;
       return;
     }
+
+    // ---- Normalize stops for every shipment ----
+for (const shipment of data) {
+  const { stops } = getStopsSummary(shipment);
+  shipment._normalizedStops = stops;
+}
 
     if (listEl) listEl.innerHTML = "";
     if (listArchivedEl) listArchivedEl.innerHTML = "";
@@ -1221,7 +1260,7 @@ function syncPrimaryFromStops(stops) {
     let r = await supabaseClient
       .from("shipments")
       .insert({ ...baseInsert, stops })
-      .select("*")
+      .select("*, stops")
       .single();
 
     if (r.error && /column/i.test(r.error.message)) {
@@ -1229,7 +1268,7 @@ function syncPrimaryFromStops(stops) {
       r = await supabaseClient
         .from("shipments")
         .insert(baseInsert)
-        .select("*")
+        .select("*, stops")
         .single();
     }
 
@@ -1238,6 +1277,11 @@ function syncPrimaryFromStops(stops) {
       return;
     }
     data = r.data;
+
+    // Zorg dat 'data.stops' altijd gevuld is (Supabase kan soms stops niet teruggeven)
+if (!Array.isArray(data?.stops) || data.stops.length === 0) {
+  data.stops = stops;
+}
 
     // Event: AANGEMAAKT (niet dubbel)
     try {
