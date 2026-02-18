@@ -1250,27 +1250,46 @@ const active = normalized.filter(s =>
       ]);
     }
 
-    // Validaties
-    if (!customer_name) {
-      msg("Vul klantnaam in.");
-      return;
-    }
-    if (shipment_type === "overig" && !shipment_type_other) {
-      msg("Vul 'overig' type in.");
-      return;
-    }
-
-    const norm = (v) => (v ?? "").toString().trim().toLowerCase();
-const getType = (s) => norm(s.type || s.stop_type || s.kind);
-const getAddr = (s) => (s.address || s.stop_address || s.addr || "").toString().trim();
-
-const hasPickup = stops.some((s) => ["pickup", "ophalen"].includes(getType(s)) && getAddr(s));
-const hasDelivery = stops.some((s) => ["delivery", "bezorgen"].includes(getType(s)) && getAddr(s));
-
-if (!Array.isArray(stops) || !stops.length || !hasPickup || !hasDelivery) {
-  msg("Voeg minimaal 1 ophaaladres én 1 bezorgadres toe.");
+    // ---------- Validaties (AANMAKEN) ----------
+if (!customer_name) {
+  msg("Vul klantnaam in.");
   return;
 }
+
+const stops = getStopsFromCreateUI(); // of jouw functie-naam
+window.lastStops = stops;
+console.log("STOPS (create):", stops);
+
+const stopType = (s) =>
+  String(
+    s?.type ?? s?.stop_type ?? s?.kind ?? s?.role ?? ""
+  ).toLowerCase().trim();
+
+const stopAddr = (s) =>
+  String(
+    s?.address ?? s?.adres ?? s?.value ?? s?.location ?? ""
+  ).trim();
+
+// herken zowel oud als nieuw:
+const isPickup = (t) => ["pickup", "ophalen", "ophaal", "haal", "collect"].includes(t);
+const isDelivery = (t) => ["delivery", "bezorgen", "bezorg", "aflever", "dropoff"].includes(t);
+
+const hasPickup = Array.isArray(stops) && stops.some(s => isPickup(stopType(s)) && stopAddr(s));
+const hasDelivery = Array.isArray(stops) && stops.some(s => isDelivery(stopType(s)) && stopAddr(s));
+
+if (!Array.isArray(stops) || stops.length === 0) {
+  msg("Ik krijg géén stops binnen uit het formulier. (Check console: STOPS (create))");
+  return;
+}
+
+if (!hasPickup || !hasDelivery) {
+  msg("Voeg minimaal 1 ophaaladres én 1 bezorgadres toe.");
+  console.warn("Pickup/Delivery check failed:", { hasPickup, hasDelivery, stops });
+  return;
+}
+
+// als alles goed is: foutmelding leegmaken
+msg("");
 
     // Legacy velden blijven gevuld (voor overzicht/track/pdf/compat)
     const legacy = deriveLegacyFromStops(stops);
