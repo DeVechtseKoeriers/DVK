@@ -478,40 +478,46 @@
   }
   if (sigClear) sigClear.addEventListener("click", sigReset);
 
-  function openDeliveredModal(shipment) {
-    currentDeliveryShipment = shipment;
-    if (modalError) modalError.textContent = "";
-    if (modalReceiver) modalReceiver.value = "";
-    if (modalNote) modalNote.value = "";
-    if (photo1) photo1.value = "";
-    if (photo2) photo2.value = "";
+  function openDeliveredModal(shipment, stopIndex = null) {
+  currentDeliveryShipment = shipment;
+  currentDeliveryStopIndex = stopIndex;
 
-    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-    const legacyLine = `${escapeHtml(shipment.pickup_address)} → ${escapeHtml(shipment.delivery_address)}`;
-    let routeLine = legacyLine;
+  if (modalError) modalError.textContent = "";
+  if (modalReceiver) modalReceiver.value = "";
+  if (modalNote) modalNote.value = "";
+  if (photo1) photo1.value = "";
+  if (photo2) photo2.value = "";
 
-    if (stops.length) {
-      const firstP = stops.find((x) => x.type === "pickup")?.address || shipment.pickup_address || "";
-      const lastD = [...stops].reverse().find((x) => x.type === "delivery")?.address || shipment.delivery_address || "";
-      routeLine = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
-    }
+  const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
 
-    if (modalShipmentInfo) {
-      modalShipmentInfo.innerHTML = `<b>${escapeHtml(shipment.track_code)}</b><br/>${routeLine}`;
-    }
-
-    if (overlay) overlay.style.display = "flex";
-    setTimeout(() => {
-      setupCanvasForDPR();
-      sigReset();
-      modalReceiver?.focus();
-    }, 60);
+  // Toon in modal: óf hele route, óf specifiek afleveradres (multi-stop)
+  let headerLine = "";
+  if (currentDeliveryStopIndex !== null && stops[currentDeliveryStopIndex]) {
+    const st = stops[currentDeliveryStopIndex];
+    headerLine = `${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${escapeHtml(st.address)} <span class="small">(stop ${currentDeliveryStopIndex + 1}/${stops.length})</span>`;
+  } else {
+    const firstP = stops.find((x) => x.type === "pickup")?.address || shipment.pickup_address || "";
+    const lastD = [...stops].reverse().find((x) => x.type === "delivery")?.address || shipment.delivery_address || "";
+    headerLine = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
   }
+
+  if (modalShipmentInfo) {
+    modalShipmentInfo.innerHTML = `<b>${escapeHtml(shipment.track_code)}</b><br/>${headerLine}`;
+  }
+
+  if (overlay) overlay.style.display = "flex";
+  setTimeout(() => {
+    setupCanvasForDPR();
+    sigReset();
+    modalReceiver?.focus();
+  }, 60);
+}
 
   function closeDeliveredModal() {
-    if (overlay) overlay.style.display = "none";
-    currentDeliveryShipment = null;
-  }
+  if (overlay) overlay.style.display = "none";
+  currentDeliveryShipment = null;
+  currentDeliveryStopIndex = null; // <— nieuw
+}
 
   if (modalCancel) modalCancel.addEventListener("click", closeDeliveredModal);
   if (overlay) overlay.addEventListener("click", (e) => {
@@ -575,18 +581,67 @@
 
         if (modalError) modalError.textContent = "Opslaan...";
 
-        await updateStatus(
-          currentDeliveryShipment,
-          "AFGELEVERD",
-          {
-            receiver_name: receiver,
-            delivered_note: note,
-            signature_path: sigPath,
-            photo1_path: p1,
-            photo2_path: p2,
-          },
-          note
-        );
+        // --- bewijsobject (voor zowel normaal als multi-stop)
+const proof = {
+  receiver_name: receiver,
+  delivered_note: note,
+  signature_path: sigPath,
+  photo1_path: p1,
+  photo2_path: p2,
+  delivered_at: new Date().toISOString(),
+};
+
+// MULTI-STOP: als er een stop-index is gezet door openDeliveredModal(shipment, idx)
+if (typeof currentDeliveryStopIndex === "number" && currentDeliveryStopIndex !== null) {
+  const shipment = currentDeliveryShipment;
+  const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+
+  if (!stops[currentDeliveryStopIndex]) {
+    throw new Error("Stop bestaat niet (index mismatch).");
+  }
+
+  // zet stop status + bewijs op die stop
+  stops[currentDeliveryStopIndex] = {
+    ...stops[currentDeliveryStopIndex],
+    status: "AFGELEVERD",
+    proof,
+  };
+
+  const overall = computeOverallStatusFromStops(stops);
+  const legacy = deriveLegacyFromStops(stops);
+
+  await updateShipmentRow(shipment.id, {
+    stops,
+    status: overall,
+    pickup_address: legacy.pickup_address,
+    delivery_address: legacy.delivery_address,
+    pickup_prio: legacy.pickup_prio,
+    delivery_prio: legacy.delivery_prio,
+  });
+
+  try {
+    const st = stops[currentDeliveryStopIndex];
+    const stopLabel = `${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address || ""}`;
+    await addEvent(shipment.id, overall, `Afleverbevestiging • Stop ${currentDeliveryStopIndex + 1} • ${stopLabel}`);
+  } catch {}
+
+  await loadShipments(currentUserId);
+  closeDeliveredModal();
+
+// NORMAAL (2 stops): oude gedrag (hele shipment AFGELEVERD)
+} else {
+  await updateStatus(
+    currentDeliveryShipment,
+    "AFGELEVERD",
+    {
+      receiver_name: receiver,
+      delivered_note: note,
+      signature_path: sigPath,
+      photo1_path: p1,
+      photo2_path: p2,
+    },
+    note
+  );
 
         closeDeliveredModal();
       } catch (err) {
@@ -917,7 +972,9 @@
           await loadShipments(currentUserId);
         })
       );
-      btns.appendChild(mkBtn("Afgeleverd", () => updateStopStatus(shipment, idx, "AFGELEVERD")));
+      btns.appendChild(
+  mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx))
+);
 
       row.appendChild(btns);
       wrap.appendChild(row);
