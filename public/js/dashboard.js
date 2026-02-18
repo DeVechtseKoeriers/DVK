@@ -834,7 +834,7 @@ function syncPrimaryFromStops(stops) {
 
     const { data, error } = await supabaseClient
       .from("shipments")
-      .select("*")
+      .select("*, stops")
       .eq("driver_id", driverId)
       .order("created_at", { ascending: false });
 
