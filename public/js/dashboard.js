@@ -1334,7 +1334,6 @@
     } catch (e) {
       console.warn("Realtime subscribe skipped:", e);
     }
-  })();
 
   // Google Maps callback (callback=initMaps in HTML)
   window.initMaps = function () {
