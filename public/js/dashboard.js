@@ -1300,13 +1300,12 @@
       const user = await requireAuth();
       currentUserId = user.id;
 
-      // Default stops UI (als aanwezig)
-      ensureDefaultStops(); // <-- BESTAAT WEL
+      ensureDefaultStops();
 
       setTab("active");
       await loadShipments(currentUserId);
 
-      // Optional realtime refresh (veilig)
+      // Optional realtime refresh
       try {
         const supabaseClient = await ensureClient();
         supabaseClient
@@ -1327,20 +1326,15 @@
       }
     } catch (e) {
       console.error("INIT error:", e);
-      // eventueel: routeMsg("Init fout: " + (e?.message || e));
     }
   })();
 
-  // ---------------- Google Maps callback (MOET 1x bestaan)
-  // Let op: in HTML moet callback=initMaps staan
+  // ---------------- Google Maps callback (1x)
   window.initMaps = function () {
     try {
-      console.log("Google Maps geladen");
       window.__dvkMapsReady = true;
-
       ensureMapInit();
       initAutocomplete();
-
       if (autoRouteEl?.checked) planOptimalRoute();
     } catch (e) {
       console.error("initMaps error:", e);
