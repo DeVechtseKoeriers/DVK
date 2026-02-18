@@ -907,9 +907,23 @@ for (const shipment of data) {
     const normalized = (data || []).map((s) => {
   // maak stops usable als array (soms komt JSON als string)
   if (typeof s.stops === "string") {
-    try { s.stops = JSON.parse(s.stops); } catch {}
+  try { s.stops = JSON.parse(s.stops); } catch {}
+}
+
+// ✅ Legacy velden vullen voor routeplanner
+try {
+  if (Array.isArray(s.stops) && s.stops.length) {
+    const legacy = deriveLegacyFromStops(s.stops);
+
+    if (!s.pickup_address && legacy.pickup_address)
+      s.pickup_address = legacy.pickup_address;
+
+    if (!s.delivery_address && legacy.delivery_address)
+      s.delivery_address = legacy.delivery_address;
   }
-  return s;
+} catch {}
+
+return s;
 });
 
 const archived = normalized.filter(s =>
