@@ -1294,35 +1294,63 @@
     }
   };
 
-  // ---------------- INIT
+   // ---------------- INIT
   (async () => {
     const user = await requireAuth();
     currentUserId = user.id;
 
-    setTab("active");
-    ensureDefaultStops();
+    // Default stops (als UI bestaat)
+    ensureAtLeastDefaultStops();
 
+    const btn = document.getElementById("btnCreate");
+    if (btn) {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        await createShipment();
+      });
+    }
+
+    setTab("active");
     await loadShipments(currentUserId);
 
-    // Optional realtime refresh (safe even if you finish channel config later)
+    // Optional realtime refresh
     try {
       const supabaseClient = await ensureClient();
+
       supabaseClient
-  .channel("shipments_changes")
-  .on(
-    "postgres_changes",
-    {
-      event: "*",
-      schema: "public",
-      table: "shipments",
-      filter: `driver_id=eq.${currentUserId}`
-    },
-    () => {
-      loadShipments(currentUserId);
-    }
-  )
-  .subscribe();
+        .channel("shipments_changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "shipments",
+            filter: `driver_id=eq.${currentUserId}`,
+          },
+          () => {
+            loadShipments(currentUserId);
+          }
+        )
+        .subscribe();
     } catch (e) {
       console.warn("Realtime subscribe skipped:", e);
     }
-    })();
+  })();
+
+  // Google Maps callback (callback=initMaps in HTML)
+  window.initMaps = function () {
+    try {
+      console.log("Google Maps geladen");
+      window.__dvkMapsReady = true;
+
+      ensureMapInit();
+      initAutocomplete();
+
+      if (autoRouteEl?.checked) {
+        planOptimalRoute();
+      }
+    } catch (e) {
+      console.error("initMaps error:", e);
+    }
+  };
+})(); // <-- sluit de grote IIFE af (de allereerste (() => { ... })
