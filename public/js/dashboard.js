@@ -82,6 +82,7 @@
   let currentUserId = null;
 
   let currentDeliveryShipment = null;
+  let currentDeliveryStopIndex = null;
   let currentEditShipment = null;
 
   let activeShipmentsCache = [];
