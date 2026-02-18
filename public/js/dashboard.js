@@ -1294,46 +1294,50 @@
     }
   };
 
-   // ---------------- INIT
+    // ---------------- INIT
   (async () => {
-    const user = await requireAuth();
-    currentUserId = user.id;
-
-    ensureAtLeastDefaultStops();
-
-    const btn = document.getElementById("btnCreate");
-    if (btn) {
-      btn.addEventListener("click", async (e) => {
-        e.preventDefault();
-        await createShipment();
-      });
-    }
-
-    setTab("active");
-    await loadShipments(currentUserId);
-
-    // Optional realtime refresh
     try {
-      const supabaseClient = await ensureClient();
+      const user = await requireAuth();
+      currentUserId = user.id;
 
-      supabaseClient
-        .channel("shipments_changes")
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "shipments",
-            filter: `driver_id=eq.${currentUserId}`,
-          },
-          () => {
-            loadShipments(currentUserId);
-          }
-        )
-        .subscribe();
+      // Default stops UI (als aanwezig)
+      ensureAtLeastDefaultStops();
+
+      // Create knop
+      const btn = document.getElementById("btnCreate");
+      if (btn) {
+        btn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          await createShipment();
+        });
+      }
+
+      setTab("active");
+      await loadShipments(currentUserId);
+
+      // Optional realtime refresh (veilig)
+      try {
+        const supabaseClient = await ensureClient();
+        supabaseClient
+          .channel("shipments_changes")
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "shipments",
+              filter: `driver_id=eq.${currentUserId}`,
+            },
+            () => loadShipments(currentUserId)
+          )
+          .subscribe();
+      } catch (e) {
+        console.warn("Realtime subscribe skipped:", e);
+      }
     } catch (e) {
-      console.warn("Realtime subscribe skipped:", e);
+      console.error("INIT error:", e);
     }
+  })();
 
   // Google Maps callback (callback=initMaps in HTML)
   window.initMaps = function () {
