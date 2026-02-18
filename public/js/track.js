@@ -1,286 +1,213 @@
-// DVK Track & Trace (Klant)
-// - Haalt data op via RPC: dvk_track_lookup(p_code)
-// - Toont ontvanger + opmerking
-// - Dedupe tijdpad (geen dubbele "Aangemaakt")
-// - Live updates zonder refresh (Realtime op shipments + shipment_events, gefilterd op shipment_id)
-// - Toont melding "Afleverbon opvraagbaar..." alleen bij AFGELEVERD/GEARCHIVEERD (of archived_at)
-
-// ---------------- DOM
-const codeEl = document.getElementById("code");
-const btnEl = document.getElementById("btn");
-const msgEl = document.getElementById("msg");
-
-const resultEl = document.getElementById("result");
-const trackcodeEl = document.getElementById("trackcode");
-const statusEl = document.getElementById("status");
-const pickupEl = document.getElementById("pickup");
-const deliveryEl = document.getElementById("delivery");
-const typeEl = document.getElementById("type");
-const colliEl = document.getElementById("colli");
-const noteEl = document.getElementById("note");
-const timelineEl = document.getElementById("timeline");
-const liveEl = document.getElementById("live");
-
-// Extra blok (die heb jij in index.html toegevoegd)
-const afterCardEl = document.getElementById("afterDeliveryCard");
-const afterTextEl = document.getElementById("afterDeliveryText");
-
-// ---------------- STATE
-let currentShipmentId = null;
-let channelShipments = null;
-let channelEvents = null;
-
-// ---------------- Helpers
-function setMsg(text, kind = "muted") {
-  if (!msgEl) return;
-  msgEl.className = kind === "err" ? "err" : kind === "ok" ? "ok" : "muted";
-  msgEl.textContent = text || "";
-}
-
-function fmt(dt) {
-  try {
-    const d = new Date(dt);
-    return isNaN(d) ? "" : d.toLocaleString("nl-NL");
-  } catch {
-    return "";
-  }
-}
-
-function labelStatus(s) {
-  const map = {
-    AANGEMAAKT: "Aangemaakt",
-    OPGEHAALD: "Opgehaald",
-    ONDERWEG: "Onderweg",
-    AFGELEVERD: "Afgeleverd",
-    PROBLEEM: "Probleem",
-    GEARCHIVEERD: "Gearchiveerd",
-  };
-  return map[s] || s || "-";
-}
-
-async function ensureClient() {
-  if (!window.supabaseClient) {
-    throw new Error("supabaseClient ontbreekt (controleer supabase-config.js)");
-  }
-  return window.supabaseClient;
-}
-
-// ---------------- Data ophalen (RPC)
-async function fetchByCode(trackCode) {
-  const supabaseClient = await ensureClient();
-  const { data, error } = await supabaseClient.rpc("dvk_track_lookup", { p_code: trackCode });
-  if (error) throw error;
-  return data; // { shipment: {...}, events: [...] } of null
-}
-
-// ---------------- Render shipment
-function renderShipment(sh) {
-  if (!resultEl) return;
-
-  resultEl.style.display = "block";
-
-  trackcodeEl.textContent = sh.track_code || "";
-  statusEl.textContent = labelStatus(sh.status);
-
-  pickupEl.textContent = sh.pickup_address || "-";
-  deliveryEl.textContent = sh.delivery_address || "-";
-
-  const t =
-    sh.shipment_type === "overig"
-      ? (sh.shipment_type_other || "overig")
-      : (sh.shipment_type || "-");
-  typeEl.textContent = t;
-
-  colliEl.textContent = (sh.colli_count ?? "-");
-
-  // ✅ Ontvanger + opmerking (alleen ingevuld na afleveren)
-  noteEl.textContent = sh.delivered_note || "-";
-
-  // ✅ Afleverbon melding alleen bij AFGELEVERD/GEARCHIVEERD (of archived_at)
-  const showAfter =
-    sh.status === "AFGELEVERD" ||
-    sh.status === "GEARCHIVEERD" ||
-    !!sh.archived_at;
-
-  if (afterCardEl) afterCardEl.style.display = showAfter ? "block" : "none";
-  if (afterTextEl) {
-    afterTextEl.innerHTML = `Afleverbon en eventuele afleverfoto’s zijn op verzoek opvraagbaar bij <b>De Vechtse Koeriers</b>.`;
-  }
-}
-
-// ---------------- Timeline (dedupe)
-function dedupeEvents(events) {
-  // 1) als er een unieke id is -> daarop dedupen
-  const hasId = events?.some(e => e && e.id != null);
-
-  const seen = new Set();
-  const out = [];
-
-  for (const ev of (events || [])) {
-    if (!ev) continue;
-
-    const key = hasId
-      ? `id:${ev.id}`
-      : `${ev.event_type || ""}__${ev.created_at || ""}__${ev.note || ""}`;
-
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(ev);
-  }
-
-  // sort: oud -> nieuw
-  out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  return out;
-}
-
-function renderTimeline(events) {
-  if (!timelineEl) return;
-
-  timelineEl.innerHTML = "";
-
-  // Dedupe: zelfde event_type + zelfde tijd (op seconde) maar 1x tonen
-const seen = new Set();
-const cleaned = [];
-
-for (const ev of (events || [])) {
-  const t = ev.created_at ? new Date(ev.created_at) : null;
-  const keyTime = t && !isNaN(t) ? Math.floor(t.getTime() / 1000) : "x";
-  const key = `${ev.event_type || ""}|${keyTime}`;
-
-  if (seen.has(key)) continue;
-  seen.add(key);
-  cleaned.push(ev);
-}
-
-// werk verder met cleaned i.p.v. events
-events = cleaned;
-
-  if (!events || events.length === 0) {
-  timelineEl.innerHTML = `<div class="muted">Nog geen updates beschikbaar.</div>`;
-  return;
-}
-
-for (const ev of events) {
-    const div = document.createElement("div");
-    div.className = "ev";
-
-    const when = fmt(ev.created_at);
-    const kind = labelStatus(ev.event_type);
-
-    div.innerHTML = `
-      <div class="t">${when}</div>
-      <div class="k">${kind}</div>
-      ${ev.event_type === "PROBLEEM" && ev.note ? `<div class="n">${ev.note}</div>` : ""}
-    `;
-    timelineEl.appendChild(div);
-  }
-}
-
-// ---------------- Live updates (Realtime)
-async function setupRealtime(shipmentId, trackCode) {
-  const supabaseClient = await ensureClient();
-
-  // Oude channels netjes weg
-  try {
-    if (channelShipments) supabaseClient.removeChannel(channelShipments);
-    if (channelEvents) supabaseClient.removeChannel(channelEvents);
-  } catch {}
-  channelShipments = null;
-  channelEvents = null;
-
-  if (liveEl) liveEl.textContent = "Live updates actief";
-
-  // Filter alleen deze zending
-  channelShipments = supabaseClient
-    .channel(`track_ship_${trackCode}`)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "shipments", filter: `id=eq.${shipmentId}` },
-      async () => {
-        try {
-          const data = await fetchByCode(trackCode);
-          if (data?.shipment) renderShipment(data.shipment);
-          if (data?.events) renderTimeline(data.events);
-        } catch (e) {
-          // stil falen
-        }
-      }
-    )
-    .subscribe();
-
-  channelEvents = supabaseClient
-    .channel(`track_ev_${trackCode}`)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "shipment_events", filter: `shipment_id=eq.${shipmentId}` },
-      async () => {
-        try {
-          const data = await fetchByCode(trackCode);
-          if (data?.shipment) renderShipment(data.shipment);
-          if (data?.events) renderTimeline(data.events);
-        } catch (e) {
-          // stil falen
-        }
-      }
-    )
-    .subscribe();
-}
-
-// ---------------- Load flow
-async function load(trackCode) {
-  setMsg("Zoeken...", "muted");
-  if (resultEl) resultEl.style.display = "none";
-  currentShipmentId = null;
-
-  const data = await fetchByCode(trackCode);
-
-  if (!data || !data.shipment) {
-    setMsg("Geen zending gevonden voor deze trackcode.", "err");
-    if (liveEl) liveEl.textContent = "";
-    if (afterCardEl) afterCardEl.style.display = "none";
-    return;
-  }
-
-  setMsg("Gevonden ✅", "ok");
-
-  renderShipment(data.shipment);
-  renderTimeline(data.events || []);
-
-  currentShipmentId = data.shipment.id;
-
-  // ✅ realtime aanzetten
-  await setupRealtime(currentShipmentId, trackCode);
-}
-
-// ---------------- UI events
-if (btnEl) {
-  btnEl.addEventListener("click", async () => {
-    const code = (codeEl?.value || "").trim();
-    if (!code) return setMsg("Vul een trackcode in.", "err");
-
-    try {
-      await load(code);
-    } catch (e) {
-      console.error(e);
-      setMsg("Fout bij ophalen: " + (e?.message || e), "err");
-    }
-  });
-}
-
-if (codeEl) {
-  codeEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") btnEl?.click();
-  });
-}
-
-// autoload via ?code=
 (() => {
-  const p = new URLSearchParams(window.location.search);
-  const c = p.get("code");
-  if (c && codeEl) {
-    codeEl.value = c;
-    btnEl?.click();
-  } else {
-    setMsg("Voer uw trackcode in om de zending te bekijken.", "muted");
+  const subLine = document.getElementById("subLine");
+  const shipmentCard = document.getElementById("shipmentCard");
+  const stopsCard = document.getElementById("stopsCard");
+  const eventsCard = document.getElementById("eventsCard");
+  const btnRefresh = document.getElementById("btnRefresh");
+  const btnPdf = document.getElementById("btnPdf");
+
+  function qParam(name) {
+    const url = new URL(window.location.href);
+    return url.searchParams.get(name);
   }
+
+  function esc(s) {
+    return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  }
+
+  function normalizeStops(sh) {
+    let raw = sh?.stops;
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch { raw = null; }
+    }
+    if (Array.isArray(raw) && raw.length) {
+      return raw.map(x => ({
+        type: (x.type || "delivery") === "pickup" ? "pickup" : "delivery",
+        address: String(x.address ?? "").trim(),
+        prio: !!x.prio,
+        status: x.status ?? null,
+        proof: x.proof ?? null,
+      })).filter(s => s.address);
+    }
+    const out = [];
+    if (sh.pickup_address) out.push({ type:"pickup", address: sh.pickup_address, prio: !!sh.pickup_prio, status:null, proof:null });
+    if (sh.delivery_address) out.push({ type:"delivery", address: sh.delivery_address, prio: !!sh.delivery_prio, status:null, proof:null });
+    return out;
+  }
+
+  function labelStatus(st) {
+    const map = {
+      AANGEMAAKT: "Aangemaakt",
+      OPGEHAALD: "Opgehaald",
+      ONDERWEG: "Onderweg",
+      AFGELEVERD: "Afgeleverd",
+      PROBLEEM: "Probleem",
+      GEARCHIVEERD: "Gearchiveerd",
+    };
+    return map[st] || (st || "-");
+  }
+
+  async function ensureClient() {
+    if (!window.supabaseClient) throw new Error("supabaseClient ontbreekt");
+    return window.supabaseClient;
+  }
+
+  async function load() {
+    const code = qParam("code");
+    if (!code) {
+      subLine.textContent = "Geen code meegegeven (?code=DVK...)";
+      return;
+    }
+
+    subLine.textContent = `Code: ${code} • laden…`;
+
+    const supabaseClient = await ensureClient();
+
+    const { data: sh, error } = await supabaseClient
+      .from("shipments")
+      .select("*, stops")
+      .eq("track_code", code)
+      .single();
+
+    if (error || !sh) {
+      subLine.textContent = "Niet gevonden.";
+      shipmentCard.innerHTML = `<b>Niet gevonden</b><div class="muted">Controleer de code.</div>`;
+      stopsCard.innerHTML = "";
+      eventsCard.innerHTML = "";
+      return;
+    }
+
+    const stops = normalizeStops(sh);
+
+    // Events
+    const { data: events } = await supabaseClient
+      .from("shipment_events")
+      .select("event_type, note, stop_index, created_at")
+      .eq("shipment_id", sh.id)
+      .order("created_at", { ascending: true });
+
+    // Render shipment
+    subLine.textContent = `Code: ${code} • Status: ${labelStatus(sh.status)}`;
+
+    shipmentCard.innerHTML = `
+      <div style="font-weight:800;font-size:16px;">${esc(sh.track_code)} — ${esc(sh.customer_name || "")}</div>
+      <div class="muted">Type: ${esc(sh.shipment_type === "overig" ? (sh.shipment_type_other || "overig") : (sh.shipment_type || ""))} • Colli: ${esc(sh.colli_count ?? "")}</div>
+      <div style="margin-top:8px;"><span class="tag">Status</span> <b>${esc(labelStatus(sh.status))}</b></div>
+    `;
+
+    // Render stops
+    const stopHtml = stops.map((s, idx) => {
+      const tag = s.type === "pickup" ? "Ophalen" : "Bezorgen";
+      const st = s.status ? labelStatus(s.status) : "—";
+      const prio = s.prio ? ` <span class="prio">PRIO</span>` : "";
+
+      // proof: multi-stop proof in stop.proof; single proof on shipment fields
+      const proof = s.proof || null;
+      const singleProof = (stops.length <= 2 && s.type === "delivery" && sh.status === "AFGELEVERD")
+        ? {
+            receiver_name: sh.receiver_name,
+            delivered_note: sh.delivered_note,
+            signature_path: sh.signature_path,
+            photo1_path: sh.photo1_path,
+            photo2_path: sh.photo2_path,
+            delivered_at: sh.delivered_at,
+          }
+        : null;
+
+      const p = proof || singleProof;
+
+      const proofHtml = p ? `
+        <div class="muted" style="margin-top:6px;">
+          <div><b>Ontvanger:</b> ${esc(p.receiver_name || "")}</div>
+          ${p.delivered_at ? `<div><b>Tijd:</b> ${esc(new Date(p.delivered_at).toLocaleString())}</div>` : ""}
+          ${p.delivered_note ? `<div><b>Opmerking:</b> ${esc(p.delivered_note)}</div>` : ""}
+          <div>${p.signature_path ? `Handtekening: ✅` : `Handtekening: —`}</div>
+          <div>${(p.photo1_path || p.photo2_path) ? `Foto’s: ✅` : `Foto’s: —`}</div>
+        </div>
+      ` : "";
+
+      return `
+        <div class="stop">
+          <div><b>${idx + 1}. ${esc(tag)}:</b> ${esc(s.address)}${prio}</div>
+          <div class="muted">Status: <b>${esc(st)}</b></div>
+          ${proofHtml}
+        </div>
+      `;
+    }).join("");
+
+    stopsCard.innerHTML = `
+      <div style="font-weight:800;">Stops (${stops.length})</div>
+      ${stopHtml || `<div class="muted">Geen stops.</div>`}
+    `;
+
+    // Render events (tijdpad)
+    const evHtml = (events || []).map(e => {
+      const t = e.created_at ? new Date(e.created_at).toLocaleString() : "";
+      const si = (e.stop_index === 0 || e.stop_index) ? ` (stop ${Number(e.stop_index) + 1})` : "";
+      return `<li><b>${esc(labelStatus(e.event_type))}</b>${esc(si)} — ${esc(t)}${e.note ? ` • ${esc(e.note)}` : ""}</li>`;
+    }).join("");
+
+    eventsCard.innerHTML = `
+      <div style="font-weight:800;">Tijdpad</div>
+      <ul>${evHtml || `<li class="muted">Geen events.</li>`}</ul>
+    `;
+
+    // PDF knop
+    btnPdf.onclick = () => makePdf(sh, stops, events || []);
+  }
+
+  async function makePdf(sh, stops, events) {
+    if (!window.jspdf?.jsPDF) {
+      alert("jsPDF niet geladen.");
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+    let y = 40;
+    const line = (txt, bold=false) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(11);
+      const split = doc.splitTextToSize(String(txt), 520);
+      doc.text(split, 40, y);
+      y += 16 * split.length;
+      if (y > 770) { doc.addPage(); y = 40; }
+    };
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Afleverbon / Bewijs van levering", 40, y); y += 22;
+
+    line(`Trackcode: ${sh.track_code}`, true);
+    line(`Klant: ${sh.customer_name || ""}`);
+    line(`Type: ${sh.shipment_type === "overig" ? (sh.shipment_type_other || "overig") : (sh.shipment_type || "")} • Colli: ${sh.colli_count ?? ""}`);
+    line(`Status: ${sh.status}`);
+
+    y += 8;
+    line("Adressen:", true);
+    stops.forEach((s, idx) => {
+      const tag = s.type === "pickup" ? "Ophalen" : "Bezorgen";
+      const st = s.status || "";
+      line(`${idx + 1}. ${tag}: ${s.address} ${s.prio ? "(PRIO)" : ""} — ${st}`);
+      const p = s.proof || null;
+      if (p) {
+        line(`   Ontvanger: ${p.receiver_name || ""}`);
+        if (p.delivered_at) line(`   Tijd: ${new Date(p.delivered_at).toLocaleString()}`);
+        if (p.delivered_note) line(`   Opmerking: ${p.delivered_note}`);
+      }
+    });
+
+    y += 8;
+    line("Tijdpad:", true);
+    events.forEach((e) => {
+      const t = e.created_at ? new Date(e.created_at).toLocaleString() : "";
+      const si = (e.stop_index === 0 || e.stop_index) ? ` (stop ${Number(e.stop_index) + 1})` : "";
+      line(`${t} — ${e.event_type}${si}${e.note ? ` • ${e.note}` : ""}`);
+    });
+
+    doc.save(`Afleverbon-${sh.track_code}.pdf`);
+  }
+
+  btnRefresh?.addEventListener("click", load);
+  load();
 })();
