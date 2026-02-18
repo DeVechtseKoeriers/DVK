@@ -1294,23 +1294,14 @@
     }
   };
 
-    // ---------------- INIT
+     // ---------------- INIT
   (async () => {
     try {
       const user = await requireAuth();
       currentUserId = user.id;
 
       // Default stops UI (als aanwezig)
-      ensureAtLeastDefaultStops();
-
-      // Create knop
-      const btn = document.getElementById("btnCreate");
-      if (btn) {
-        btn.addEventListener("click", async (e) => {
-          e.preventDefault();
-          await createShipment();
-        });
-      }
+      ensureDefaultStops(); // <-- BESTAAT WEL
 
       setTab("active");
       await loadShipments(currentUserId);
@@ -1336,10 +1327,12 @@
       }
     } catch (e) {
       console.error("INIT error:", e);
+      // eventueel: routeMsg("Init fout: " + (e?.message || e));
     }
   })();
 
-  // Google Maps callback (callback=initMaps in HTML)
+  // ---------------- Google Maps callback (MOET 1x bestaan)
+  // Let op: in HTML moet callback=initMaps staan
   window.initMaps = function () {
     try {
       console.log("Google Maps geladen");
