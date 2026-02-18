@@ -657,7 +657,7 @@ setTimeout(() => {
     const supabaseClient = await ensureClient();
     const { data, error } = await supabaseClient
       .from("shipment_events")
-      .select("*")
+      .select("*, stops")
       .eq("shipment_id", shipmentId)
       .order("created_at", { ascending: true });
 
@@ -770,10 +770,20 @@ function syncPrimaryFromStops(stops) {
     const shipment_type_other = editTypeOther?.value?.trim() || null;
     const colli_count = parseInt(editColli?.value || "1", 10);
 
-    if (!customer_name || !pickup_address || !delivery_address) {
-      if (editError) editError.textContent = "Vul klantnaam + ophaaladres + bezorgadres in.";
-      return;
-    }
+    const hasPickup = stops.some(s => (s.type === "pickup") && (s.address || "").trim());
+const hasDelivery = stops.some(s => (s.type === "delivery") && (s.address || "").trim());
+
+    // Validatie: klantnaam + minimaal 1 pickup + minimaal 1 delivery in stops
+const hasPickup = Array.isArray(stops) && stops.some(s => (s.type === "pickup") && (s.address || "").trim());
+const hasDelivery = Array.isArray(stops) && stops.some(s => (s.type === "delivery") && (s.address || "").trim());
+
+if (!customer_name || !hasPickup || !hasDelivery) {
+  if (editError) {
+    editError.textContent = "Vul klantnaam + minimaal 1 ophaaladres + minimaal 1 bezorgadres in.";
+  }
+  return;
+}
+    
     if (shipment_type === "overig" && !shipment_type_other) {
       if (editError) editError.textContent = "Vul bij 'overig' een type in.";
       return;
@@ -784,6 +794,9 @@ function syncPrimaryFromStops(stops) {
 
     try {
       const supabaseClient = await ensureClient();
+
+      const stops = getStopsFromEditUI();
+syncPrimaryFromStops(stops); // zet editPickup/editDelivery netjes gelijk aan eerste pickup/last delivery
 
       const payload = {
   customer_name,
@@ -1242,17 +1255,18 @@ for (const shipment of data) {
 
     // 2) Insert (probeer met stops kolom; als die niet bestaat -> fallback zonder stops)
     const baseInsert = {
-      driver_id: currentUserId,
-      customer_name,
-      shipment_type,
-      shipment_type_other: shipment_type === "overig" ? shipment_type_other : null,
-      colli_count,
-      pickup_address: legacy.pickup_address,
-      delivery_address: legacy.delivery_address,
-      pickup_prio: legacy.pickup_prio,
-      delivery_prio: legacy.delivery_prio,
-      status: "AANGEMAAKT",
-    };
+  driver_id: currentUserId,
+  track_code,
+  customer_name: (customer_name || "").trim(),
+  pickup_address: (pickup_address || "").trim(),
+  delivery_address: (delivery_address || "").trim(),
+  shipment_type: (shipment_type || "doos").trim().toLowerCase(),
+  shipment_type_other: (shipment_type || "").trim().toLowerCase() === "overig"
+    ? (shipment_type_other || "").trim() || null
+    : null,
+  colli_count: Number(colli_count || 1),
+  status: "AANGEMAAKT",
+};
 
     let data = null;
 
