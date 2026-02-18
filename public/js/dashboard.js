@@ -262,29 +262,34 @@
 
   // ---------------- Shipment status logic (overall, from stops)
   function computeOverallStatusFromStops(stops) {
-    // If any stop has PROBLEEM => PROBLEEM
-    if (stops.some(s => s.status === "PROBLEEM")) return "PROBLEEM";
+    if (stops.some((s) => s.status === "PROBLEEM")) return "PROBLEEM";
 
-    const pickups = stops.filter(s => s.type === "pickup");
-    const deliveries = stops.filter(s => s.type === "delivery");
+    const pickups = stops.filter((s) => s.type === "pickup");
+    const deliveries = stops.filter((s) => s.type === "delivery");
 
-    const allPickupsDone = pickups.length ? pickups.every(s => s.status === "OPGEHAALD" || s.status === "AFGELEVERD") : true;
-    const allDeliveriesDone = deliveries.length ? deliveries.every(s => s.status === "AFGELEVERD") : false;
+    const allPickupsDone = pickups.length
+      ? pickups.every((s) => s.status === "OPGEHAALD" || s.status === "AFGELEVERD")
+      : true;
+    const allDeliveriesDone = deliveries.length ? deliveries.every((s) => s.status === "AFGELEVERD") : false;
 
     if (allPickupsDone && allDeliveriesDone) return "AFGELEVERD";
 
-    if (stops.some(s => s.status === "ONDERWEG")) return "ONDERWEG";
-    if (stops.some(s => s.status === "OPGEHAALD")) return "OPGEHAALD";
+    if (stops.some((s) => s.status === "ONDERWEG")) return "ONDERWEG";
+    if (stops.some((s) => s.status === "OPGEHAALD")) return "OPGEHAALD";
 
     return "AANGEMAAKT";
   }
 
-  // ---------------- Normalize stops from DB (accepts many shapes)
+  // ---------------- Normalize stops from DB
   function normalizeStopsFromDb(shipment) {
     let raw = shipment?.stops;
 
     if (typeof raw === "string") {
-      try { raw = JSON.parse(raw); } catch { raw = null; }
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        raw = null;
+      }
     }
 
     if (Array.isArray(raw) && raw.length) {
@@ -298,7 +303,7 @@
         .filter((s) => s.address);
     }
 
-    // fallback to legacy single fields
+    // fallback legacy
     const out = [];
     const p = String(shipment?.pickup_address || "").trim();
     const d = String(shipment?.delivery_address || "").trim();
@@ -309,15 +314,14 @@
 
   function isMultiStopShipment(shipment) {
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-    // “multi” = meer dan 2 stops (dus extra adressen)
     return stops.length > 2;
   }
 
-  // ---------------- Events (timeline)
+  // ---------------- Events
   async function addEvent(shipmentId, eventType, note = null, stopIndex = null) {
     const supabaseClient = await ensureClient();
     const payload = { shipment_id: shipmentId, event_type: eventType, note };
-    if (stopIndex !== null && stopIndex !== undefined) payload.stop_index = stopIndex; // optional column
+    if (stopIndex !== null && stopIndex !== undefined) payload.stop_index = stopIndex;
     const { error } = await supabaseClient.from("shipment_events").insert(payload);
     if (error) console.warn("event insert error:", error);
   }
@@ -325,27 +329,24 @@
   // ---------------- Update shipment row
   async function updateShipmentRow(shipmentId, patch) {
     const supabaseClient = await ensureClient();
-    const { error } = await supabaseClient
-      .from("shipments")
-      .update(patch)
-      .eq("id", shipmentId)
-      .eq("driver_id", currentUserId);
-
+    const { error } = await supabaseClient.from("shipments").update(patch).eq("id", shipmentId).eq("driver_id", currentUserId);
     if (error) throw error;
   }
 
-  // ---------------- Update overall status (simple button path)
+  // ---------------- Update overall status
   async function updateStatus(shipment, newStatus, extra = {}, eventNote = null) {
     try {
       await updateShipmentRow(shipment.id, { status: newStatus, ...extra });
-      try { await addEvent(shipment.id, newStatus, eventNote); } catch {}
+      try {
+        await addEvent(shipment.id, newStatus, eventNote);
+      } catch {}
       await loadShipments(currentUserId);
     } catch (e) {
       alert("Update fout: " + (e?.message || e));
     }
   }
 
-  // ---------------- Per-stop status update (multi-stop only)
+  // ---------------- Per-stop status update (multi-stop only)  ✅ FIXED COMPLETE
   async function updateStopStatus(shipment, stopIndex, newStatus) {
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
     if (!stops[stopIndex]) return;
@@ -365,29 +366,35 @@
         delivery_prio: legacy.delivery_prio,
       });
 
+      // Track & Trace kan alleen deze standaard statussen lezen:
+      // OPGEHAALD / ONDERWEG / PROBLEEM / AFGELEVERD
+      const stop = stops?.[stopIndex] || null;
+      const stopLabel = stop
+        ? `${stop.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${stop.address || stop.addr || ""}`
+        : "";
+
       try {
-  // Track & Trace kan alleen deze standaard statussen lezen:
-  // OPGEHAALD / ONDERWEG / PROBLEEM / AFGELEVERD
-  const stop = stops?.[stopIndex] || null;
+        await addEvent(
+          shipment.id,
+          overall,
+          stopLabel ? `Stop ${stopIndex + 1} • ${stopLabel}` : null,
+          stopIndex
+        );
+      } catch (e) {
+        console.warn("event add failed:", e);
+      }
 
-  const stopLabel = stop
-    ? `${stop.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${stop.address || stop.addr || ""}`
-    : "";
-
-  await addEvent(
-  shipment.id,
-  overall,   // <-- DIT
-  stopLabel ? `Stop ${stopIndex + 1} • ${stopLabel}` : null
-);
-
-  await loadShipments(currentUserId);
-} catch (e) {
-  alert("Stop update fout: " + (e?.message || e));
-}
+      await loadShipments(currentUserId);
+    } catch (e) {
+      alert("Stop update fout: " + (e?.message || e));
+    }
+  }
 
   // ---------------- Delete
   async function deleteShipment(shipment) {
-    const ok = confirm(`Weet je zeker dat je zending ${shipment.track_code} wilt verwijderen?\n\nDit kan niet ongedaan gemaakt worden.`);
+    const ok = confirm(
+      `Weet je zeker dat je zending ${shipment.track_code} wilt verwijderen?\n\nDit kan niet ongedaan gemaakt worden.`
+    );
     if (!ok) return;
 
     const supabaseClient = await ensureClient();
@@ -506,14 +513,14 @@
   }
 
   if (modalCancel) modalCancel.addEventListener("click", closeDeliveredModal);
-  if (overlay) overlay.addEventListener("click", (e) => { if (e.target === overlay) closeDeliveredModal(); });
+  if (overlay) overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeDeliveredModal();
+  });
 
-  // Storage upload helpers (Supabase Storage)
+  // Storage upload helpers
   async function uploadFile(bucket, path, fileOrBlob, contentType) {
     const supabaseClient = await ensureClient();
-    const { error } = await supabaseClient.storage
-      .from(bucket)
-      .upload(path, fileOrBlob, { upsert: true, contentType });
+    const { error } = await supabaseClient.storage.from(bucket).upload(path, fileOrBlob, { upsert: true, contentType });
     if (error) throw error;
     return path;
   }
@@ -551,7 +558,8 @@
         const sigPath = `${base}/signature.png`;
         await uploadFile(bucket, sigPath, sigBlob, "image/png");
 
-        let p1 = null, p2 = null;
+        let p1 = null,
+          p2 = null;
 
         if (photo1?.files && photo1.files[0]) {
           const f = photo1.files[0];
@@ -626,7 +634,7 @@
         type: r.dataset.type === "pickup" ? "pickup" : "delivery",
         address: (r.querySelector(".editStopAddress")?.value || "").trim(),
         prio: !!r.querySelector(".editStopPrio")?.checked,
-        status: null, // keep statuses as-is in DB if you want; here we reset null only for edited rows
+        status: null,
       }))
       .filter((s) => s.address);
   }
@@ -636,7 +644,9 @@
     if (editError) editError.textContent = "";
 
     if (editShipmentInfo) {
-      editShipmentInfo.innerHTML = `<b>${escapeHtml(shipment.track_code || "")}</b><br/><span class="small">${escapeHtml(shipment.customer_name || "")}</span>`;
+      editShipmentInfo.innerHTML = `<b>${escapeHtml(shipment.track_code || "")}</b><br/><span class="small">${escapeHtml(
+        shipment.customer_name || ""
+      )}</span>`;
     }
 
     if (editCustomer) editCustomer.value = shipment.customer_name || "";
@@ -649,7 +659,7 @@
     if (editStopsWrap) editStopsWrap.innerHTML = "";
     const stops = normalizeStopsFromDb(shipment);
     if (stops.length) {
-      stops.forEach(st => addEditStopRow(st.type, st.address, st.prio));
+      stops.forEach((st) => addEditStopRow(st.type, st.address, st.prio));
     } else {
       addEditStopRow("pickup", shipment.pickup_address || "", false);
       addEditStopRow("delivery", shipment.delivery_address || "", false);
@@ -667,7 +677,10 @@
     currentEditShipment = null;
   }
   if (editCancel) editCancel.addEventListener("click", closeEditModal);
-  if (editOverlay) editOverlay.addEventListener("click", (e) => { if (e.target === editOverlay) closeEditModal(); });
+  if (editOverlay)
+    editOverlay.addEventListener("click", (e) => {
+      if (e.target === editOverlay) closeEditModal();
+    });
 
   async function saveEditShipment() {
     if (!currentEditShipment) return;
@@ -678,8 +691,8 @@
     const colli_count = parseInt(editColli?.value || "1", 10);
 
     const stops = getStopsFromEditUI();
-    const hasPickup = stops.some(s => s.type === "pickup" && s.address);
-    const hasDelivery = stops.some(s => s.type === "delivery" && s.address);
+    const hasPickup = stops.some((s) => s.type === "pickup" && s.address);
+    const hasDelivery = stops.some((s) => s.type === "delivery" && s.address);
 
     if (!customer_name || !hasPickup || !hasDelivery) {
       if (editError) editError.textContent = "Vul klantnaam + minimaal 1 ophaaladres + minimaal 1 bezorgadres in.";
@@ -694,15 +707,14 @@
     if (editError) editError.textContent = "Opslaan...";
 
     try {
-      // preserve old per-stop statuses if possible:
       const oldStops = normalizeStopsFromDb(currentEditShipment);
       const mergedStops = stops.map((s, i) => ({
         ...s,
-        status: oldStops[i]?.status ?? null
+        status: oldStops[i]?.status ?? null,
       }));
 
       const legacy = deriveLegacyFromStops(mergedStops);
-      const overall = (mergedStops.length > 2) ? computeOverallStatusFromStops(mergedStops) : (currentEditShipment.status || "AANGEMAAKT");
+      const overall = mergedStops.length > 2 ? computeOverallStatusFromStops(mergedStops) : currentEditShipment.status || "AANGEMAAKT";
 
       await updateShipmentRow(currentEditShipment.id, {
         customer_name,
@@ -729,9 +741,8 @@
   }
   if (editSave) editSave.addEventListener("click", saveEditShipment);
 
-  // ---------------- Create shipment (WORKING)
+  // ---------------- Create shipment
   function generateTrackcode() {
-    // simpele fallback; als je elders een betere generator hebt: vervang dit
     return `DVK${new Date().getFullYear()}${Math.floor(Date.now() / 1000)}`;
   }
 
@@ -743,10 +754,15 @@
     const shipment_type_other = document.getElementById("shipment_type_other")?.value?.trim() || null;
     const colli_count = parseInt(document.getElementById("colli_count")?.value || "1", 10);
 
-    if (!customer_name) { msg("Vul klantnaam in."); return; }
-    if (shipment_type === "overig" && !shipment_type_other) { msg("Vul bij 'overig' een type in."); return; }
+    if (!customer_name) {
+      msg("Vul klantnaam in.");
+      return;
+    }
+    if (shipment_type === "overig" && !shipment_type_other) {
+      msg("Vul bij 'overig' een type in.");
+      return;
+    }
 
-    // stops ophalen
     let stops = null;
 
     if (hasStopsUI()) {
@@ -760,13 +776,16 @@
       stops = [
         { type: "pickup", address: pickup_address, prio: pickup_prio, status: null },
         { type: "delivery", address: delivery_address, prio: delivery_prio, status: null },
-      ].filter(s => s.address);
+      ].filter((s) => s.address);
     }
 
-    const hasPickup = stops.some(s => s.type === "pickup" && s.address);
-    const hasDelivery = stops.some(s => s.type === "delivery" && s.address);
+    const hasPickup = stops.some((s) => s.type === "pickup" && s.address);
+    const hasDelivery = stops.some((s) => s.type === "delivery" && s.address);
 
-    if (!hasPickup || !hasDelivery) { msg("Voeg minimaal 1 ophaaladres én 1 bezorgadres toe."); return; }
+    if (!hasPickup || !hasDelivery) {
+      msg("Voeg minimaal 1 ophaaladres én 1 bezorgadres toe.");
+      return;
+    }
 
     const legacy = deriveLegacyFromStops(stops);
     const track_code = generateTrackcode();
@@ -788,32 +807,32 @@
     try {
       const supabaseClient = await ensureClient();
 
-      // insert with stops (fallback if no stops column)
-      let r = await supabaseClient
-        .from("shipments")
-        .insert({ ...baseInsert, stops })
-        .select("*, stops")
-        .single();
+      let r = await supabaseClient.from("shipments").insert({ ...baseInsert, stops }).select("*, stops").single();
 
       if (r.error && /column/i.test(r.error.message)) {
-        r = await supabaseClient
-          .from("shipments")
-          .insert(baseInsert)
-          .select("*, stops")
-          .single();
+        r = await supabaseClient.from("shipments").insert(baseInsert).select("*, stops").single();
       }
-      if (r.error) { msg("Fout: " + r.error.message); return; }
+      if (r.error) {
+        msg("Fout: " + r.error.message);
+        return;
+      }
 
-      try { await addEvent(r.data.id, "AANGEMAAKT", null); } catch {}
+      try {
+        await addEvent(r.data.id, "AANGEMAAKT", null);
+      } catch {}
 
       msg(`Aangemaakt: ${r.data.track_code}`);
 
       // reset form
-      document.getElementById("customer_name").value = "";
-      document.getElementById("colli_count").value = "1";
-      document.getElementById("shipment_type").value = "doos";
-      const other = document.getElementById("shipment_type_other");
-      if (other) other.value = "";
+      const cn = document.getElementById("customer_name");
+      const cc = document.getElementById("colli_count");
+      const st = document.getElementById("shipment_type");
+      const so = document.getElementById("shipment_type_other");
+
+      if (cn) cn.value = "";
+      if (cc) cc.value = "1";
+      if (st) st.value = "doos";
+      if (so) so.value = "";
       if (otherWrap) otherWrap.style.display = "none";
 
       if (hasStopsUI()) {
@@ -860,8 +879,6 @@
     wrap.className = "stopStatusWrap";
 
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-
-    // Alleen per-adres statuses bij multi-stop
     if (stops.length <= 2) return wrap;
 
     const title = document.createElement("div");
@@ -890,14 +907,15 @@
 
       btns.appendChild(mkBtn("Opgehaald", () => updateStopStatus(shipment, idx, "OPGEHAALD")));
       btns.appendChild(mkBtn("Onderweg", () => updateStopStatus(shipment, idx, "ONDERWEG")));
-      btns.appendChild(mkBtn("Probleem", async () => {
-        const note = prompt("Wat is het probleem?");
-        if (!note) return;
-        // stop status probleem + note in shipment.problem_note (overall) is optioneel:
-        await updateStopStatus(shipment, idx, "PROBLEEM");
-        try { await updateShipmentRow(shipment.id, { problem_note: note, status: "PROBLEEM" }); } catch {}
-        await loadShipments(currentUserId);
-      }));
+      btns.appendChild(
+        mkBtn("Probleem", async () => {
+          const note = prompt("Wat is het probleem?");
+          if (!note) return;
+          await updateStopStatus(shipment, idx, "PROBLEEM");
+          try { await updateShipmentRow(shipment.id, { problem_note: note, status: "PROBLEEM" }); } catch {}
+          await loadShipments(currentUserId);
+        })
+      );
       btns.appendChild(mkBtn("Afgeleverd", () => updateStopStatus(shipment, idx, "AFGELEVERD")));
 
       row.appendChild(btns);
@@ -912,17 +930,14 @@
     div.className = "shipment";
 
     const stops = s._stopsNorm || normalizeStopsFromDb(s);
-    const firstP = stops.find(x => x.type === "pickup")?.address || s.pickup_address || "";
-    const lastD = [...stops].reverse().find(x => x.type === "delivery")?.address || s.delivery_address || "";
-    const line = stops.length > 0
-      ? `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`
-      : `${escapeHtml(s.pickup_address)} → ${escapeHtml(s.delivery_address)}`;
+    const firstP = stops.find((x) => x.type === "pickup")?.address || s.pickup_address || "";
+    const lastD = [...stops].reverse().find((x) => x.type === "delivery")?.address || s.delivery_address || "";
+    const line =
+      stops.length > 0
+        ? `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`
+        : `${escapeHtml(s.pickup_address)} → ${escapeHtml(s.delivery_address)}`;
 
-    const typeText =
-      s.shipment_type === "overig"
-        ? (s.shipment_type_other || "overig")
-        : (s.shipment_type || "");
-
+    const typeText = s.shipment_type === "overig" ? s.shipment_type_other || "overig" : s.shipment_type || "";
     const trackLink = `/DVK/track/?code=${encodeURIComponent(s.track_code)}`;
 
     div.innerHTML = `
@@ -939,24 +954,23 @@
     const actions = div.querySelector(".actions");
     const sub = div.querySelector(".sub");
 
-    // Always
     actions.appendChild(mkBtn("Verwijderen", () => deleteShipment(s)));
 
     if (!s.archived_at) {
       actions.appendChild(mkBtn("Wijzigen", () => openEditModal(s)));
 
-      // Normale zending (2 stops): simpele knoppen
       if (!isMultiStopShipment(s)) {
         actions.appendChild(mkBtn("Opgehaald", () => updateStatus(s, "OPGEHAALD")));
         actions.appendChild(mkBtn("Onderweg", () => updateStatus(s, "ONDERWEG")));
-        actions.appendChild(mkBtn("Probleem", async () => {
-          const note = prompt("Wat is het probleem?");
-          if (!note) return;
-          await updateStatus(s, "PROBLEEM", { problem_note: note }, note);
-        }));
+        actions.appendChild(
+          mkBtn("Probleem", async () => {
+            const note = prompt("Wat is het probleem?");
+            if (!note) return;
+            await updateStatus(s, "PROBLEEM", { problem_note: note }, note);
+          })
+        );
         actions.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(s)));
       } else {
-        // Multi-stop: per-adres UI
         div.appendChild(renderStopStatusUI(s));
       }
 
@@ -973,7 +987,7 @@
     return div;
   }
 
-  // ---------------- Load shipments (FIXED)
+  // ---------------- Load shipments
   async function loadShipments(driverId) {
     const supabaseClient = await ensureClient();
 
@@ -991,10 +1005,9 @@
       return;
     }
 
-    const all = (data || []).map(s => {
+    const all = (data || []).map((s) => {
       s._stopsNorm = normalizeStopsFromDb(s);
 
-      // keep legacy fields aligned for routeplanner/pdf
       const legacy = deriveLegacyFromStops(s._stopsNorm);
       if (!s.pickup_address && legacy.pickup_address) s.pickup_address = legacy.pickup_address;
       if (!s.delivery_address && legacy.delivery_address) s.delivery_address = legacy.delivery_address;
@@ -1002,11 +1015,10 @@
       return s;
     });
 
-    const archived = all.filter(s => !!s.archived_at || s.status === "GEARCHIVEERD");
-    const active = all.filter(s => !s.archived_at && s.status !== "GEARCHIVEERD");
+    const archived = all.filter((s) => !!s.archived_at || s.status === "GEARCHIVEERD");
+    const active = all.filter((s) => !s.archived_at && s.status !== "GEARCHIVEERD");
 
-    // routeplanner active cache: exclude delivered as well
-    activeShipmentsCache = active.filter(s => s.status !== "AFGELEVERD");
+    activeShipmentsCache = active.filter((s) => s.status !== "AFGELEVERD");
     window.activeShipmentsCache = activeShipmentsCache;
 
     if (listEl) listEl.innerHTML = "";
@@ -1015,22 +1027,21 @@
     if (active.length === 0) {
       if (listEl) listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
     } else {
-      active.forEach(s => listEl.appendChild(renderShipmentCard(s)));
+      active.forEach((s) => listEl.appendChild(renderShipmentCard(s)));
     }
 
     if (archived.length === 0) {
       if (listArchivedEl) listArchivedEl.innerHTML = "<small>Geen gearchiveerde zendingen.</small>";
     } else {
-      archived.forEach(s => listArchivedEl.appendChild(renderShipmentCard(s)));
+      archived.forEach((s) => listArchivedEl.appendChild(renderShipmentCard(s)));
     }
 
-    // auto route
     if (autoRouteEl?.checked && window.__dvkMapsReady) {
       window.__dvkMaybeAutoRecalcRoute?.();
     }
   }
 
-  // ---------------- Routeplanner + Maps (FIXED)
+  // ---------------- Routeplanner + Maps
   let map = null;
   let directionsService = null;
   let directionsRenderer = null;
@@ -1079,10 +1090,8 @@
   function buildStopsFromActiveShipments() {
     const out = [];
 
-    for (const sh of (window.activeShipmentsCache || [])) {
+    for (const sh of window.activeShipmentsCache || []) {
       const stops = sh._stopsNorm || normalizeStopsFromDb(sh);
-
-      // Alleen als er echt adressen zijn
       if (!stops.length) continue;
 
       stops.forEach((st, idx) => {
@@ -1108,10 +1117,7 @@
           origins: addresses,
           destinations: addresses,
           travelMode: google.maps.TravelMode.DRIVING,
-          drivingOptions: {
-            departureTime: new Date(),
-            trafficModel: google.maps.TrafficModel.BEST_GUESS,
-          },
+          drivingOptions: { departureTime: new Date(), trafficModel: google.maps.TrafficModel.BEST_GUESS },
           unitSystem: google.maps.UnitSystem.METRIC,
         },
         (res, status) => {
@@ -1128,11 +1134,10 @@
     return el.duration?.value ?? Number.POSITIVE_INFINITY;
   }
 
-  // Greedy constraint: deliveries pas nadat pickups van die shipment geweest zijn
   async function computeOrderedStopsGreedy(stops) {
     if (!stops.length) return [];
 
-    const addrs = [BASE_ADDRESS, ...stops.map(s => s.address)];
+    const addrs = [BASE_ADDRESS, ...stops.map((s) => s.address)];
     const matrix = await buildTimeMatrix(addrs);
 
     const pickupNeed = new Map();
@@ -1142,12 +1147,12 @@
     const donePickups = new Map();
 
     const remaining = new Map();
-    stops.forEach(s => remaining.set(s.id, s));
+    stops.forEach((s) => remaining.set(s.id, s));
 
     let currentIndex = 0;
     const ordered = [];
 
-    const idxOfStop = (stop) => 1 + stops.findIndex(x => x.id === stop.id);
+    const idxOfStop = (stop) => 1 + stops.findIndex((x) => x.id === stop.id);
 
     while (remaining.size > 0) {
       const candidates = [];
@@ -1188,9 +1193,11 @@
       currentIndex = idxOfStop(best);
     }
 
-    // laatste stop liefst delivery
     if (ordered.length && ordered[ordered.length - 1].type !== "delivery") {
-      const lastDeliveryIdx = [...ordered].map((s, i) => ({ s, i })).reverse().find(x => x.s.type === "delivery")?.i;
+      const lastDeliveryIdx = [...ordered]
+        .map((s, i) => ({ s, i }))
+        .reverse()
+        .find((x) => x.s.type === "delivery")?.i;
       if (lastDeliveryIdx != null) {
         const d = ordered.splice(lastDeliveryIdx, 1)[0];
         ordered.push(d);
@@ -1202,7 +1209,7 @@
   async function drawRouteOnMap(orderedStops) {
     ensureMapInit();
 
-    const waypoints = orderedStops.map(s => ({ location: s.address, stopover: true }));
+    const waypoints = orderedStops.map((s) => ({ location: s.address, stopover: true }));
 
     const req = {
       origin: BASE_ADDRESS,
@@ -1282,7 +1289,7 @@
 
   if (btnPlanRoute) btnPlanRoute.addEventListener("click", () => planOptimalRoute());
 
-  // Google Maps callback MUST exist (callback=initMaps)
+  // ---------------- Google Maps callback (MUST match callback=initMaps in HTML)
   window.initMaps = function () {
     try {
       window.__dvkMapsReady = true;
@@ -1294,30 +1301,26 @@
     }
   };
 
-     // ---------------- INIT
+  // ---------------- INIT
   (async () => {
     try {
       const user = await requireAuth();
       currentUserId = user.id;
 
+      // ✅ juiste functie
       ensureDefaultStops();
 
       setTab("active");
       await loadShipments(currentUserId);
 
-      // Optional realtime refresh
+      // Optional realtime refresh (veilig)
       try {
         const supabaseClient = await ensureClient();
         supabaseClient
           .channel("shipments_changes")
           .on(
             "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "shipments",
-              filter: `driver_id=eq.${currentUserId}`,
-            },
+            { event: "*", schema: "public", table: "shipments", filter: `driver_id=eq.${currentUserId}` },
             () => loadShipments(currentUserId)
           )
           .subscribe();
@@ -1328,15 +1331,4 @@
       console.error("INIT error:", e);
     }
   })();
-
-  // ---------------- Google Maps callback (1x)
-  window.initMaps = function () {
-    try {
-      window.__dvkMapsReady = true;
-      ensureMapInit();
-      initAutocomplete();
-      if (autoRouteEl?.checked) planOptimalRoute();
-    } catch (e) {
-      console.error("initMaps error:", e);
-    }
-  };
+})();
