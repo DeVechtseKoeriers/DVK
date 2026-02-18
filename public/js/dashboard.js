@@ -581,76 +581,61 @@
 
         if (modalError) modalError.textContent = "Opslaan...";
 
-        // --- bewijsobject (voor zowel normaal als multi-stop)
-const proof = {
-  receiver_name: receiver,
-  delivered_note: note,
-  signature_path: sigPath,
-  photo1_path: p1,
-  photo2_path: p2,
-  delivered_at: new Date().toISOString(),
-};
-
-// MULTI-STOP: als er een stop-index is gezet door openDeliveredModal(shipment, idx)
-if (typeof currentDeliveryStopIndex === "number" && currentDeliveryStopIndex !== null) {
-  const shipment = currentDeliveryShipment;
-  const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-
-  if (!stops[currentDeliveryStopIndex]) {
-    throw new Error("Stop bestaat niet (index mismatch).");
-  }
-
-  // zet stop status + bewijs op die stop
-  stops[currentDeliveryStopIndex] = {
-    ...stops[currentDeliveryStopIndex],
-    status: "AFGELEVERD",
-    proof,
+try {
+  const bewijs = {
+    receiver_name: receiver,
+    delivered_note: note,
+    signature_path: sigPath,
+    photo1_path: p1,
+    photo2_path: p2,
+    delivered_at: new Date().toISOString(),
   };
 
-  const overall = computeOverallStatusFromStops(stops);
-  const legacy = deriveLegacyFromStops(stops);
+  // MULTI STOP?
+  if (typeof currentDeliveryStopIndex === "number" && currentDeliveryStopIndex !== null) {
 
-  await updateShipmentRow(shipment.id, {
-    stops,
-    status: overall,
-    pickup_address: legacy.pickup_address,
-    delivery_address: legacy.delivery_address,
-    pickup_prio: legacy.pickup_prio,
-    delivery_prio: legacy.delivery_prio,
-  });
+    const shipment = currentDeliveryShipment;
+    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
 
-  try {
-    const st = stops[currentDeliveryStopIndex];
-    const stopLabel = `${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address || ""}`;
-    await addEvent(shipment.id, overall, `Afleverbevestiging • Stop ${currentDeliveryStopIndex + 1} • ${stopLabel}`);
-  } catch {}
+    if (!stops[currentDeliveryStopIndex]) {
+      throw new Error("Stop index mismatch.");
+    }
 
-  await loadShipments(currentUserId);
-  closeDeliveredModal();
+    stops[currentDeliveryStopIndex] = {
+      ...stops[currentDeliveryStopIndex],
+      status: "AFGELEVERD",
+      proof: bewijs,
+    };
 
-// NORMAAL (2 stops): oude gedrag (hele shipment AFGELEVERD)
-} else {
-  await updateStatus(
-    currentDeliveryShipment,
-    "AFGELEVERD",
-    {
-      receiver_name: receiver,
-      delivered_note: note,
-      signature_path: sigPath,
-      photo1_path: p1,
-      photo2_path: p2,
-    },
-    note
-  );
+    const overall = computeOverallStatusFromStops(stops);
+    const legacy = deriveLegacyFromStops(stops);
 
-        closeDeliveredModal();
-      } catch (err) {
-        console.error(err);
-        if (modalError) modalError.textContent = "Fout: " + (err?.message || err);
-      } finally {
-        modalConfirm.disabled = false;
-      }
+    await updateShipmentRow(shipment.id, {
+      stops,
+      status: overall,
+      pickup_address: legacy.pickup_address,
+      delivery_address: legacy.delivery_address,
+      pickup_prio: legacy.pickup_prio,
+      delivery_prio: legacy.delivery_prio,
     });
+
+  } else {
+    // NORMALE ZENDING
+    await updateShipmentRow(currentDeliveryShipment.id, {
+      status: "AFGELEVERD",
+      ...bewijs,
+    });
+  }
+
+  closeDeliveredModal();
+  await loadShipments(currentUserId);
+
+} catch (err) {
+  console.error(err);
+  if (modalError) modalError.textContent = "Fout: " + (err?.message || err);
+} finally {
+  modalConfirm.disabled = false;
+}
   }
 
   // ---------------- Edit modal (stops)
