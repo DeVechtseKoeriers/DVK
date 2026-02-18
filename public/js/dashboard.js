@@ -375,10 +375,10 @@
     : "";
 
   await addEvent(
-    shipment.id,
-    newStatus, // <-- GEEN STOP_ prefix meer!
-    stopLabel ? `Stop ${stopIndex + 1} • ${stopLabel}` : null
-  );
+  shipment.id,
+  overall,   // <-- DIT
+  stopLabel ? `Stop ${stopIndex + 1} • ${stopLabel}` : null
+);
 
   await loadShipments(currentUserId);
 } catch (e) {
