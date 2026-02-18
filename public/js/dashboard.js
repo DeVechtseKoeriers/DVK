@@ -1299,7 +1299,6 @@
     const user = await requireAuth();
     currentUserId = user.id;
 
-    // Default stops (als UI bestaat)
     ensureAtLeastDefaultStops();
 
     const btn = document.getElementById("btnCreate");
@@ -1346,9 +1345,7 @@
       ensureMapInit();
       initAutocomplete();
 
-      if (autoRouteEl?.checked) {
-        planOptimalRoute();
-      }
+      if (autoRouteEl?.checked) planOptimalRoute();
     } catch (e) {
       console.error("initMaps error:", e);
     }
