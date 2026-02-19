@@ -113,6 +113,90 @@
   if (tabActive) tabActive.addEventListener("click", () => setTab("active"));
   if (tabArchived) tabArchived.addEventListener("click", () => setTab("archived"));
 
+   async function fetchShipmentEvents(shipmentId) {
+  const supabaseClient = await ensureClient();
+  const { data, error } = await supabaseClient
+    .from("shipment_events")
+    .select("created_at,event_type,note,stop_index")
+    .eq("shipment_id", shipmentId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.warn("events load error:", error);
+    return [];
+  }
+  return data || [];
+}
+
+function fmtDT(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString("nl-NL");
+  } catch {
+    return iso || "";
+  }
+}
+
+async function downloadAfleverPdf(shipment) {
+  // jsPDF check
+  const jspdf = window.jspdf?.jsPDF;
+  if (!jspdf) {
+    alert("jsPDF ontbreekt. Voeg jsPDF script toe aan dashboard.html.");
+    return;
+  }
+
+  const doc = new jspdf();
+  const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+  const events = await fetchShipmentEvents(shipment.id);
+
+  let y = 12;
+  const line = (t) => { doc.text(String(t || ""), 10, y); y += 7; };
+
+  // Header
+  doc.setFontSize(14);
+  line(`Afleverbon - ${shipment.track_code || ""}`);
+  doc.setFontSize(10);
+  line(`Klant: ${shipment.customer_name || "-"}`);
+  line(`Type: ${shipment.shipment_type === "overig" ? (shipment.shipment_type_other || "overig") : (shipment.shipment_type || "-")} • Colli: ${shipment.colli_count ?? "-"}`);
+  line(`Status: ${shipment.status || "-"}`);
+  y += 3;
+
+  // Stops
+  doc.setFontSize(12);
+  line("Stops:");
+  doc.setFontSize(10);
+
+  stops.forEach((s, i) => {
+    const tag = s.type === "pickup" ? "Ophalen" : "Bezorgen";
+    const st = s.status || "-";
+    line(`${i + 1}. ${tag} • ${s.address} • Status: ${st}${s.prio ? " • PRIO" : ""}`);
+    if (s.proof?.receiver_name) line(`   Ontvanger: ${s.proof.receiver_name}`);
+    if (s.proof?.delivered_at) line(`   Tijd: ${fmtDT(s.proof.delivered_at)}`);
+    if (s.proof?.delivered_note) line(`   Opmerking: ${s.proof.delivered_note}`);
+  });
+
+  y += 3;
+
+  // Tijdpad (events)
+  doc.setFontSize(12);
+  line("Tijdpad:");
+  doc.setFontSize(10);
+
+  if (!events.length) {
+    line("Geen events gevonden.");
+  } else {
+    events.forEach((ev) => {
+      const si = (typeof ev.stop_index === "number") ? ` (stop ${ev.stop_index + 1})` : "";
+      const note = ev.note ? ` — ${ev.note}` : "";
+      line(`${fmtDT(ev.created_at)} • ${ev.event_type}${si}${note}`);
+      // simpele page-break
+      if (y > 280) { doc.addPage(); y = 12; }
+    });
+  }
+
+  doc.save(`Afleverbon-${shipment.track_code || shipment.id}.pdf`);
+}
+
   // ---------------- Supabase
   async function ensureClient() {
     if (!window.supabaseClient) throw new Error("supabaseClient ontbreekt (controleer supabase-config.js)");
@@ -948,6 +1032,7 @@
     const sub = div.querySelector(".sub");
 
     actions.appendChild(mkBtn("Verwijderen", () => deleteShipment(s)));
+    actions.appendChild(mkBtn("Aflever-PDF", () => downloadAfleverPdf(s))); 
 
     if (!s.archived_at) {
       actions.appendChild(mkBtn("Wijzigen", () => openEditModal(s)));
