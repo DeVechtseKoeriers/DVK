@@ -930,12 +930,13 @@ async function downloadAfleverPdf(shipment) {
   if (btnCreate) btnCreate.addEventListener("click", (e) => { e.preventDefault(); createShipment(); });
 
   // ---------------- Render shipment cards
-  function mkBtn(text, onClick) {
-    const b = document.createElement("button");
-    b.textContent = text;
-    b.addEventListener("click", onClick);
-    return b;
-  }
+  function mkBtn(text, onClick, className = "") {
+  const b = document.createElement("button");
+  b.textContent = text;
+  if (className) b.className = className;
+  b.addEventListener("click", onClick);
+  return b;
+}
 
   function labelStatus(st) {
     const map = {
@@ -981,14 +982,16 @@ async function downloadAfleverPdf(shipment) {
       const btns = document.createElement("div");
       btns.className = "stopStatusButtons";
 
-      btns.appendChild(mkBtn("Opgehaald", () => updateStopStatus(shipment, idx, "OPGEHAALD")));
-      btns.appendChild(mkBtn("Onderweg", () => updateStopStatus(shipment, idx, "ONDERWEG")));
-      btns.appendChild(mkBtn("Probleem", async () => {
-        const note = prompt("Wat is het probleem?");
-        if (!note) return;
-        await updateStopStatus(shipment, idx, "PROBLEEM", note);
-        try { await updateShipmentRow(shipment.id, { problem_note: note, status: "PROBLEEM" }); } catch {}
-        await loadShipments(currentUserId);
+      btns.appendChild(mkBtn("Opgehaald", () => updateStopStatus(shipment, idx, "OPGEHAALD"), `statusBtn ${st.status==="OPGEHAALD" ? "isActive" : ""}`));
+btns.appendChild(mkBtn("Onderweg", () => updateStopStatus(shipment, idx, "ONDERWEG"), `statusBtn ${st.status==="ONDERWEG" ? "isActive" : ""}`));
+btns.appendChild(mkBtn("Probleem", async () => {
+  const note = prompt("Wat is het probleem?");
+  if (!note) return;
+  await updateStopStatus(shipment, idx, "PROBLEEM", note);
+  try { await updateShipmentRow(shipment.id, { problem_note: note, status: "PROBLEEM" }); } catch {}
+  await loadShipments(currentUserId);
+}, `statusBtn ${st.status==="PROBLEEM" ? "isActive" : ""}`));
+btns.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx), `statusBtn ${st.status==="AFGELEVERD" ? "isActive" : ""}`));
       }));
 
       // ✅ IMPORTANT: multi-stop delivered MUST open modal
@@ -1038,14 +1041,14 @@ async function downloadAfleverPdf(shipment) {
       actions.appendChild(mkBtn("Wijzigen", () => openEditModal(s)));
 
       if (!isMultiStopShipment(s)) {
-        actions.appendChild(mkBtn("Opgehaald", () => updateStatus(s, "OPGEHAALD")));
-        actions.appendChild(mkBtn("Onderweg", () => updateStatus(s, "ONDERWEG")));
+        actions.appendChild(mkBtn("Opgehaald", () => updateStatus(s, "OPGEHAALD"), `statusBtn ${s.status==="OPGEHAALD" ? "isActive" : ""}`));
+        actions.appendChild(mkBtn("Onderweg", () => updateStatus(s, "ONDERWEG"), `statusBtn ${s.status==="ONDERWEG" ? "isActive" : ""}`));
         actions.appendChild(mkBtn("Probleem", async () => {
-          const note = prompt("Wat is het probleem?");
-          if (!note) return;
-          await updateStatus(s, "PROBLEEM", { problem_note: note }, note);
-        }));
-        actions.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(s, null))); // single flow
+        const note = prompt("Wat is het probleem?");
+        if (!note) return;
+        await updateStatus(s, "PROBLEEM", { problem_note: note }, note);
+        }, `statusBtn ${s.status==="PROBLEEM" ? "isActive" : ""}`));
+        actions.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(s, null), `statusBtn ${s.status==="AFGELEVERD" ? "isActive" : ""}`));
       } else {
         div.appendChild(renderStopStatusUI(s));
       }
