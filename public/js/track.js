@@ -104,10 +104,19 @@ document.addEventListener("DOMContentLoaded", () => {
   <div style="font-weight:800;font-size:16px;">
     ${esc(sh.track_code)}
   </div>
-  <div style="margin-top:4px;">
-    ${esc(sh.name || "")}
+
+  <div style="margin-top:4px; font-weight:500; color:#555;">
+    ${esc(sh.customer_name || "")}
   </div>
-    `;
+
+  <div class="muted">
+    Type: ${esc(sh.type)} • Colli: ${esc(sh.colli)}
+  </div>
+
+  <div class="status-badge">
+    ${labelStatus(sh.status)}
+  </div>
+`;
 
     // Render stops
     const stopHtml = stops.map((s, idx) => {
