@@ -101,9 +101,12 @@ document.addEventListener("DOMContentLoaded", () => {
     subLine.textContent = "";
 
     shipmentCard.innerHTML = `
-      <div style="font-weight:800;font-size:16px;">${esc(sh.track_code)} — ${esc(sh.customer_name || "")}</div>
-      <div class="muted">Type: ${esc(sh.shipment_type === "overig" ? (sh.shipment_type_other || "overig") : (sh.shipment_type || ""))} • Colli: ${esc(sh.colli_count ?? "")}</div>
-      <div style="margin-top:8px;"><span class="tag">Status</span> <b>${esc(labelStatus(sh.status))}</b></div>
+  <div style="font-weight:800;font-size:16px;">
+    ${esc(sh.track_code)}
+  </div>
+  <div style="margin-top:4px;">
+    ${esc(sh.name || "")}
+  </div>
     `;
 
     // Render stops
