@@ -1445,26 +1445,28 @@
       await loadShipments(currentUserId);
 
       // Optional realtime refresh (safe)
-      try {
-        const supabaseClient = await ensureClient();
-        supabaseClient
-          .channel("shipments_changes")
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "shipments",
-              filter: `driver_id=eq.${currentUserId}`,
-            },
-            () => loadShipments(currentUserId)
-          )
-          .subscribe();
-      } catch (e) {
-        console.warn("Realtime subscribe skipped:", e);
-      }
-    } catch (e) {
-      console.error("INIT error:", e);
-      msg("Init fout: " + (e?.message || e));
-    }
-  })();
+  try {
+    const supabaseClient = await ensureClient();
+
+    supabaseClient
+      .channel("shipments_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "shipments",
+          filter: `driver_id=eq.${currentUserId}`,
+        },
+        () => loadShipments(currentUserId)
+      )
+      .subscribe();
+  } catch (e) {
+    console.warn("Realtime subscribe skipped:", e);
+  }
+
+} catch (e) {
+  console.error("INIT error:", e);
+  msg("Init fout: " + (e?.message || e));
+}
+})();
