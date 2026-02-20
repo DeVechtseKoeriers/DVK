@@ -1,87 +1,95 @@
-/* DVK Driver Dashboard — Clean rebuild (syntax-safe)
-   - Multi-stop create + edit
-   - Per-stop status
-   - Delivered modal for BOTH single and multi-stop (proof saved per stop when multi)
-   - Routeplanner (Maps + DistanceMatrix)
-   - Supabase shipments + shipment_events
-*/
+// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD
+// Fixes:
+// - NO duplicate initMaps
+// - NO parse errors / missing braces
+// - Multi-stop: "Afgeleverd" opens proof modal PER STOP
+// - Status buttons highlight green when active
+// - Aflever-PDF button visible in Active + Archived
+// - shipment_events "AANGEMAAKT" deduped
+// - Works with legacy pickup/delivery fields + stops[] JSON
 
 (() => {
+  "use strict";
+
   // ---------------- DOM
-  const $ = (id) => document.getElementById(id);
+  const listEl = document.getElementById("list");
+  const listArchivedEl = document.getElementById("listArchived");
+  const tabActive = document.getElementById("tabActive");
+  const tabArchived = document.getElementById("tabArchived");
 
-  const listEl = $("list");
-  const listArchivedEl = $("listArchived");
-  const tabActive = $("tabActive");
-  const tabArchived = $("tabArchived");
-
-  // Create
-  const createMsg = $("createMsg");
-  const shipmentTypeEl = $("shipment_type");
-  const otherWrap = $("otherWrap");
-  const btnCreate = $("btnCreate");
+  // Create form
+  const createMsg = document.getElementById("createMsg");
+  const shipmentTypeEl = document.getElementById("shipment_type");
+  const otherWrap = document.getElementById("otherWrap");
+  const btnCreate = document.getElementById("btnCreate");
 
   // Stops UI (create)
-  const stopsWrap = $("stopsWrap");
-  const btnAddPickup = $("btnAddPickup");
-  const btnAddDelivery = $("btnAddDelivery");
+  const stopsWrap = document.getElementById("stopsWrap");
+  const btnAddPickup = document.getElementById("btnAddPickup");
+  const btnAddDelivery = document.getElementById("btnAddDelivery");
 
-  // Legacy fields fallback (if no stops UI)
-  const legacyPickupInput = $("pickup_address");
-  const legacyDeliveryInput = $("delivery_address");
-  const legacyPickupPrio = $("pickup_prio");
-  const legacyDeliveryPrio = $("delivery_prio");
+  // Legacy fields (if stops UI not present)
+  const legacyPickupInput = document.getElementById("pickup_address");
+  const legacyDeliveryInput = document.getElementById("delivery_address");
+  const legacyPickupPrio = document.getElementById("pickup_prio");
+  const legacyDeliveryPrio = document.getElementById("delivery_prio");
 
   // Edit modal
-  const editOverlay = $("editOverlay");
-  const editShipmentInfo = $("editShipmentInfo");
-  const editCustomer = $("editCustomer");
-  const editType = $("editType");
-  const editColli = $("editColli");
-  const editOtherWrap = $("editOtherWrap");
-  const editTypeOther = $("editTypeOther");
-  const editError = $("editError");
-  const editCancel = $("editCancel");
-  const editSave = $("editSave");
+  const editOverlay = document.getElementById("editOverlay");
+  const editShipmentInfo = document.getElementById("editShipmentInfo");
+  const editCustomer = document.getElementById("editCustomer");
+  const editType = document.getElementById("editType");
+  const editColli = document.getElementById("editColli");
+  const editOtherWrap = document.getElementById("editOtherWrap");
+  const editTypeOther = document.getElementById("editTypeOther");
+  const editError = document.getElementById("editError");
+  const editCancel = document.getElementById("editCancel");
+  const editSave = document.getElementById("editSave");
 
-  const editStopsWrap = $("editStopsWrap");
-  const btnEditAddPickup = $("btnEditAddPickup");
-  const btnEditAddDelivery = $("btnEditAddDelivery");
+  // Edit stops UI
+  const editStopsWrap = document.getElementById("editStopsWrap");
+  const btnEditAddPickup = document.getElementById("btnEditAddPickup");
+  const btnEditAddDelivery = document.getElementById("btnEditAddDelivery");
 
-  // Delivered modal
-  const overlay = $("modalOverlay");
-  const modalShipmentInfo = $("modalShipmentInfo");
-  const modalReceiver = $("modalReceiver");
-  const modalNote = $("modalNote");
-  const modalError = $("modalError");
-  const modalCancel = $("modalCancel");
-  const modalConfirm = $("modalConfirm");
+  // Delivered modal (proof)
+  const overlay = document.getElementById("modalOverlay");
+  const modalShipmentInfo = document.getElementById("modalShipmentInfo");
+  const modalReceiver = document.getElementById("modalReceiver");
+  const modalNote = document.getElementById("modalNote");
+  const modalError = document.getElementById("modalError");
+  const modalCancel = document.getElementById("modalCancel");
+  const modalConfirm = document.getElementById("modalConfirm");
 
   // Signature
-  const sigCanvas = $("sigCanvas");
-  const sigClear = $("sigClear");
+  const sigCanvas = document.getElementById("sigCanvas");
+  const sigClear = document.getElementById("sigClear");
 
   // Photos
-  const photo1 = $("photo1");
-  const photo2 = $("photo2");
+  const photo1 = document.getElementById("photo1");
+  const photo2 = document.getElementById("photo2");
 
   // Logout
-  const logoutBtn = $("btnLogout");
+  const logoutBtn = document.getElementById("btnLogout");
 
   // Routeplanner
-  const btnPlanRoute = $("btnPlanRoute");
-  const autoRouteEl = $("autoRoute");
-  const routeMsgEl = $("routeMsg");
-  const routeListEl = $("routeList");
-  const mapEl = $("map");
-  const routeSummaryEl = $("routeSummary");
+  const btnPlanRoute = document.getElementById("btnPlanRoute");
+  const autoRouteEl = document.getElementById("autoRoute");
+  const routeMsgEl = document.getElementById("routeMsg");
+  const routeListEl = document.getElementById("routeList");
+  const mapEl = document.getElementById("map");
+  const routeSummaryEl = document.getElementById("routeSummary");
+
+  // PDF button in dashboard (if you have it)
+  const btnDownloadPdf = document.getElementById("btnDownloadPdf");
 
   // ---------------- STATE
   let currentTab = "active";
   let currentUserId = null;
 
+  // For proof modal
   let currentDeliveryShipment = null;
-  let currentDeliveryStopIndex = null; // <-- important for multi-stop delivered proof
+  let currentDeliveryStopIndex = null; // null = whole shipment (legacy)
+
   let currentEditShipment = null;
 
   let activeShipmentsCache = [];
@@ -97,8 +105,7 @@
     return String(str ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;");
+      .replaceAll(">", "&gt;");
   }
 
   function setTab(tab) {
@@ -113,89 +120,86 @@
   if (tabActive) tabActive.addEventListener("click", () => setTab("active"));
   if (tabArchived) tabArchived.addEventListener("click", () => setTab("archived"));
 
-   async function fetchShipmentEvents(shipmentId) {
-  const supabaseClient = await ensureClient();
-  const { data, error } = await supabaseClient
-    .from("shipment_events")
-    .select("created_at,event_type,note,stop_index")
-    .eq("shipment_id", shipmentId)
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    console.warn("events load error:", error);
-    return [];
-  }
-  return data || [];
-}
-
-function fmtDT(iso) {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString("nl-NL");
-  } catch {
-    return iso || "";
-  }
-}
-
-async function downloadAfleverPdf(shipment) {
-  // jsPDF check
-  const jspdf = window.jspdf?.jsPDF;
-  if (!jspdf) {
-    alert("jsPDF ontbreekt. Voeg jsPDF script toe aan dashboard.html.");
-    return;
+  function hasStopsUI() {
+    return !!(stopsWrap && (btnAddPickup || btnAddDelivery));
   }
 
-  const doc = new jspdf();
-  const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-  const events = await fetchShipmentEvents(shipment.id);
+  function normalizeStopsFromDb(shipment) {
+    let raw = shipment?.stops;
 
-  let y = 12;
-  const line = (t) => { doc.text(String(t || ""), 10, y); y += 7; };
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch { raw = null; }
+    }
 
-  // Header
-  doc.setFontSize(14);
-  line(`Afleverbon - ${shipment.track_code || ""}`);
-  doc.setFontSize(10);
-  line(`Klant: ${shipment.customer_name || "-"}`);
-  line(`Type: ${shipment.shipment_type === "overig" ? (shipment.shipment_type_other || "overig") : (shipment.shipment_type || "-")} • Colli: ${shipment.colli_count ?? "-"}`);
-  line(`Status: ${shipment.status || "-"}`);
-  y += 3;
+    if (Array.isArray(raw) && raw.length) {
+      return raw
+        .map((x) => ({
+          type: (x.type || x.stop_type || x.kind || "delivery") === "pickup" ? "pickup" : "delivery",
+          address: String(x.address ?? x.addr ?? x.stop_address ?? "").trim(),
+          prio: !!(x.prio ?? x.priority ?? x.is_prio ?? x.is_priority),
+          status: x.status ?? null,
+          proof: x.proof ?? null,
+        }))
+        .filter((s) => s.address);
+    }
 
-  // Stops
-  doc.setFontSize(12);
-  line("Stops:");
-  doc.setFontSize(10);
-
-  stops.forEach((s, i) => {
-    const tag = s.type === "pickup" ? "Ophalen" : "Bezorgen";
-    const st = s.status || "-";
-    line(`${i + 1}. ${tag} • ${s.address} • Status: ${st}${s.prio ? " • PRIO" : ""}`);
-    if (s.proof?.receiver_name) line(`   Ontvanger: ${s.proof.receiver_name}`);
-    if (s.proof?.delivered_at) line(`   Tijd: ${fmtDT(s.proof.delivered_at)}`);
-    if (s.proof?.delivered_note) line(`   Opmerking: ${s.proof.delivered_note}`);
-  });
-
-  y += 3;
-
-  // Tijdpad (events)
-  doc.setFontSize(12);
-  line("Tijdpad:");
-  doc.setFontSize(10);
-
-  if (!events.length) {
-    line("Geen events gevonden.");
-  } else {
-    events.forEach((ev) => {
-      const si = (typeof ev.stop_index === "number") ? ` (stop ${ev.stop_index + 1})` : "";
-      const note = ev.note ? ` — ${ev.note}` : "";
-      line(`${fmtDT(ev.created_at)} • ${ev.event_type}${si}${note}`);
-      // simpele page-break
-      if (y > 280) { doc.addPage(); y = 12; }
-    });
+    // fallback legacy
+    const out = [];
+    const p = String(shipment?.pickup_address || "").trim();
+    const d = String(shipment?.delivery_address || "").trim();
+    if (p) out.push({ type: "pickup", address: p, prio: shipment?.pickup_prio === true, status: null, proof: null });
+    if (d) out.push({ type: "delivery", address: d, prio: shipment?.delivery_prio === true, status: null, proof: null });
+    return out;
   }
 
-  doc.save(`Afleverbon-${shipment.track_code || shipment.id}.pdf`);
-}
+  function deriveLegacyFromStops(stops) {
+    const pickups = stops.filter((s) => s.type === "pickup");
+    const deliveries = stops.filter((s) => s.type === "delivery");
+    return {
+      pickup_address: pickups[0]?.address || "",
+      delivery_address: deliveries[deliveries.length - 1]?.address || "",
+      pickup_prio: !!pickups[0]?.prio,
+      delivery_prio: !!deliveries[deliveries.length - 1]?.prio,
+    };
+  }
+
+  function isMultiStopShipment(shipment) {
+    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+    // multi = meer dan 2 stops
+    return stops.length > 2;
+  }
+
+  function computeOverallStatusFromStops(stops) {
+    if (stops.some((s) => s.status === "PROBLEEM")) return "PROBLEEM";
+
+    const pickups = stops.filter((s) => s.type === "pickup");
+    const deliveries = stops.filter((s) => s.type === "delivery");
+
+    const allPickupsDone = pickups.length
+      ? pickups.every((s) => s.status === "OPGEHAALD" || s.status === "AFGELEVERD")
+      : true;
+
+    const allDeliveriesDone = deliveries.length
+      ? deliveries.every((s) => s.status === "AFGELEVERD")
+      : false;
+
+    if (allPickupsDone && allDeliveriesDone) return "AFGELEVERD";
+    if (stops.some((s) => s.status === "ONDERWEG")) return "ONDERWEG";
+    if (stops.some((s) => s.status === "OPGEHAALD")) return "OPGEHAALD";
+    return "AANGEMAAKT";
+  }
+
+  function labelStatus(st) {
+    const map = {
+      AANGEMAAKT: "Aangemaakt",
+      OPGEHAALD: "Opgehaald",
+      ONDERWEG: "Onderweg",
+      AFGELEVERD: "Afgeleverd",
+      PROBLEEM: "Probleem",
+      GEARCHIVEERD: "Gearchiveerd",
+    };
+    return map[st] || (st || "-");
+  }
 
   // ---------------- Supabase
   async function ensureClient() {
@@ -222,19 +226,19 @@ async function downloadAfleverPdf(shipment) {
     });
   }
 
-  // ---------------- Type "overig"
-  function toggleCreateOther() {
-    if (!shipmentTypeEl || !otherWrap) return;
-    otherWrap.style.display = shipmentTypeEl.value === "overig" ? "block" : "none";
+  // ---------------- Type “overig”
+  if (shipmentTypeEl && otherWrap) {
+    shipmentTypeEl.addEventListener("change", () => {
+      otherWrap.style.display = shipmentTypeEl.value === "overig" ? "block" : "none";
+    });
   }
-  if (shipmentTypeEl && otherWrap) shipmentTypeEl.addEventListener("change", toggleCreateOther);
 
   // ---------------- Google Places attach
   function attachPlacesToInput(inputEl) {
     try {
       if (!inputEl) return;
       if (inputEl.dataset.placesAttached === "1") return;
-      if (!window.google?.maps?.places) return;
+      if (!window.google || !google.maps || !google.maps.places) return;
 
       const ac = new google.maps.places.Autocomplete(inputEl, {
         fields: ["formatted_address", "geometry", "name"],
@@ -243,7 +247,7 @@ async function downloadAfleverPdf(shipment) {
 
       ac.addListener("place_changed", () => {
         const place = ac.getPlace();
-        if (place?.formatted_address) inputEl.value = place.formatted_address;
+        if (place && place.formatted_address) inputEl.value = place.formatted_address;
       });
 
       inputEl.dataset.placesAttached = "1";
@@ -253,24 +257,14 @@ async function downloadAfleverPdf(shipment) {
   }
 
   function initAutocomplete() {
-    // create UI
-    if (stopsWrap) {
-      stopsWrap.querySelectorAll("input.stopAddress").forEach(attachPlacesToInput);
-    } else {
-      attachPlacesToInput(legacyPickupInput);
-      attachPlacesToInput(legacyDeliveryInput);
-    }
-    // edit UI
-    if (editStopsWrap) {
-      editStopsWrap.querySelectorAll("input.editStopAddress").forEach(attachPlacesToInput);
-    }
+    if (stopsWrap) stopsWrap.querySelectorAll("input.stopAddress").forEach(attachPlacesToInput);
+    attachPlacesToInput(legacyPickupInput);
+    attachPlacesToInput(legacyDeliveryInput);
+
+    if (editStopsWrap) editStopsWrap.querySelectorAll("input.editStopAddress").forEach(attachPlacesToInput);
   }
 
   // ---------------- Stops UI (Create)
-  function hasStopsUI() {
-    return !!(stopsWrap && (btnAddPickup || btnAddDelivery));
-  }
-
   function stopRowTemplate({ type = "pickup", address = "", prio = false } = {}) {
     const row = document.createElement("div");
     row.className = "stopRow";
@@ -286,9 +280,9 @@ async function downloadAfleverPdf(shipment) {
       <button type="button" class="stopRemove" title="Verwijderen">×</button>
     `;
 
-    row.querySelector(".stopRemove")?.addEventListener("click", () => {
+    row.querySelector(".stopRemove").addEventListener("click", () => {
       row.remove();
-      window.__dvkMaybeAutoRecalcRoute?.();
+      if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
     });
 
     return row;
@@ -296,6 +290,7 @@ async function downloadAfleverPdf(shipment) {
 
   function ensureDefaultStops() {
     if (!hasStopsUI()) return;
+    if (!stopsWrap) return;
     if (stopsWrap.querySelectorAll(".stopRow").length > 0) return;
 
     stopsWrap.appendChild(stopRowTemplate({ type: "pickup" }));
@@ -314,7 +309,7 @@ async function downloadAfleverPdf(shipment) {
   if (btnAddDelivery) btnAddDelivery.addEventListener("click", () => addStop("delivery"));
 
   function getStopsFromCreateUI() {
-    if (!hasStopsUI()) return null;
+    if (!hasStopsUI() || !stopsWrap) return null;
     const rows = [...stopsWrap.querySelectorAll(".stopRow")];
 
     return rows
@@ -322,86 +317,35 @@ async function downloadAfleverPdf(shipment) {
         const type = r.dataset.type === "delivery" ? "delivery" : "pickup";
         const address = r.querySelector(".stopAddress")?.value?.trim() || "";
         const prio = !!r.querySelector(".stopPrio")?.checked;
-        return { type, address, prio, status: null };
+        return { type, address, prio, status: null, proof: null };
       })
       .filter((s) => s.address);
   }
 
-  function deriveLegacyFromStops(stops) {
-    const pickups = stops.filter((s) => s.type === "pickup");
-    const deliveries = stops.filter((s) => s.type === "delivery");
-
-    const pickup_address = pickups[0]?.address || "";
-    const delivery_address = deliveries[deliveries.length - 1]?.address || "";
-
-    const pickup_prio = !!pickups[0]?.prio;
-    const delivery_prio = !!deliveries[deliveries.length - 1]?.prio;
-
-    return { pickup_address, delivery_address, pickup_prio, delivery_prio };
-  }
-
-  function normalizeStopsFromDb(shipment) {
-    let raw = shipment?.stops;
-    if (typeof raw === "string") {
-      try { raw = JSON.parse(raw); } catch { raw = null; }
-    }
-
-    if (Array.isArray(raw) && raw.length) {
-      return raw
-        .map((x) => ({
-          type: (x.type || x.stop_type || x.kind || "delivery") === "pickup" ? "pickup" : "delivery",
-          address: String(x.address ?? x.addr ?? x.stop_address ?? "").trim(),
-          prio: !!(x.prio ?? x.priority ?? x.is_prio ?? x.is_priority),
-          status: x.status ?? null,
-          proof: x.proof ?? null, // keep proof if exists
-        }))
-        .filter((s) => s.address);
-    }
-
-    // fallback legacy single fields
-    const out = [];
-    const p = String(shipment?.pickup_address || "").trim();
-    const d = String(shipment?.delivery_address || "").trim();
-    if (p) out.push({ type: "pickup", address: p, prio: shipment?.pickup_prio === true, status: null, proof: null });
-    if (d) out.push({ type: "delivery", address: d, prio: shipment?.delivery_prio === true, status: null, proof: null });
-    return out;
-  }
-
-  function isMultiStopShipment(shipment) {
-    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-    return stops.length > 2;
-  }
-
-  function computeOverallStatusFromStops(stops) {
-    if (stops.some((s) => s.status === "PROBLEEM")) return "PROBLEEM";
-
-    const pickups = stops.filter((s) => s.type === "pickup");
-    const deliveries = stops.filter((s) => s.type === "delivery");
-
-    const allPickupsDone = pickups.length
-      ? pickups.every((s) => s.status === "OPGEHAALD" || s.status === "AFGELEVERD")
-      : true;
-
-    const allDeliveriesDone = deliveries.length
-      ? deliveries.every((s) => s.status === "AFGELEVERD")
-      : false;
-
-    if (allPickupsDone && allDeliveriesDone) return "AFGELEVERD";
-    if (stops.some((s) => s.status === "ONDERWEG")) return "ONDERWEG";
-    if (stops.some((s) => s.status === "OPGEHAALD")) return "OPGEHAALD";
-    return "AANGEMAAKT";
-  }
-
-  // ---------------- Events
+  // ---------------- Events (timeline) — dedupe AANGEMAAKT
   async function addEvent(shipmentId, eventType, note = null, stopIndex = null) {
     const supabaseClient = await ensureClient();
+
+    // Dedup AANGEMAAKT (voorkomt dubbele regels)
+    if (eventType === "AANGEMAAKT") {
+      const { data: existing } = await supabaseClient
+        .from("shipment_events")
+        .select("id")
+        .eq("shipment_id", shipmentId)
+        .eq("event_type", "AANGEMAAKT")
+        .limit(1);
+
+      if (existing && existing.length) return;
+    }
+
     const payload = { shipment_id: shipmentId, event_type: eventType, note };
     if (stopIndex !== null && stopIndex !== undefined) payload.stop_index = stopIndex;
+
     const { error } = await supabaseClient.from("shipment_events").insert(payload);
     if (error) console.warn("event insert error:", error);
   }
 
-  // ---------------- Update shipment
+  // ---------------- Update shipment row
   async function updateShipmentRow(shipmentId, patch) {
     const supabaseClient = await ensureClient();
     const { error } = await supabaseClient
@@ -413,6 +357,7 @@ async function downloadAfleverPdf(shipment) {
     if (error) throw error;
   }
 
+  // ---------------- Update overall status (simple)
   async function updateStatus(shipment, newStatus, extra = {}, eventNote = null) {
     try {
       await updateShipmentRow(shipment.id, { status: newStatus, ...extra });
@@ -423,7 +368,8 @@ async function downloadAfleverPdf(shipment) {
     }
   }
 
-  async function updateStopStatus(shipment, stopIndex, newStatus, noteForEvent = null) {
+  // ---------------- Update per-stop status (multi-stop only)
+  async function updateStopStatus(shipment, stopIndex, newStatus, note = null) {
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
     if (!stops[stopIndex]) return;
 
@@ -439,17 +385,20 @@ async function downloadAfleverPdf(shipment) {
       delivery_address: legacy.delivery_address,
       pickup_prio: legacy.pickup_prio,
       delivery_prio: legacy.delivery_prio,
+      ...(newStatus === "PROBLEEM" && note ? { problem_note: note } : {}),
     });
 
-    // Event: write ONLY overall status, but include stop context in note
     const st = stops[stopIndex];
-    const stopLabel = st ? `${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address}` : "";
-    try { await addEvent(shipment.id, overall, noteForEvent || (stopLabel ? `Stop ${stopIndex + 1} • ${stopLabel}` : null), stopIndex); } catch {}
+    const stopLabel = `${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address}`;
+
+    // Track&Trace leest alleen overall status types: OPGEHAALD/ONDERWEG/PROBLEEM/AFGELEVERD
+    // Daarom loggen we overall, maar met note die stop aangeeft.
+    try { await addEvent(shipment.id, overall, `Stop ${stopIndex + 1} • ${stopLabel}${note ? " • " + note : ""}`, stopIndex); } catch {}
 
     await loadShipments(currentUserId);
   }
 
-  // ---------------- Delete
+  // ---------------- Delete shipment
   async function deleteShipment(shipment) {
     const ok = confirm(`Weet je zeker dat je zending ${shipment.track_code} wilt verwijderen?\n\nDit kan niet ongedaan gemaakt worden.`);
     if (!ok) return;
@@ -462,13 +411,13 @@ async function downloadAfleverPdf(shipment) {
       .eq("driver_id", currentUserId)
       .select("id");
 
-    if (error) { alert("Verwijderen mislukt: " + error.message); return; }
-    if (!data || data.length === 0) { alert("Niet verwijderd (RLS/driver_id mismatch)."); return; }
+    if (error) return alert("Verwijderen mislukt: " + error.message);
+    if (!data || data.length === 0) return alert("Niet verwijderd (RLS/driver_id mismatch).");
 
     await loadShipments(currentUserId);
   }
 
-  // ---------------- Delivered modal (signature + photos)
+  // ---------------- Delivered modal (signature + photos) — supports stopIndex
   let drawing = false;
   let hasSignature = false;
   let last = null;
@@ -544,18 +493,17 @@ async function downloadAfleverPdf(shipment) {
 
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
 
-    let headerLine = `${escapeHtml(shipment.pickup_address || "")} → ${escapeHtml(shipment.delivery_address || "")}`;
+    let headerLine = `${escapeHtml(shipment.pickup_address)} → ${escapeHtml(shipment.delivery_address)}`;
     if (stops.length) {
       const firstP = stops.find((x) => x.type === "pickup")?.address || shipment.pickup_address || "";
       const lastD = [...stops].reverse().find((x) => x.type === "delivery")?.address || shipment.delivery_address || "";
       headerLine = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
     }
 
-    // If multi-stop and stopIndex set, show which stop is being delivered
     let stopLine = "";
-    if (typeof stopIndex === "number" && stops[stopIndex]) {
-      const st = stops[stopIndex];
-      stopLine = `<br/><span class="small"><b>Bevestiging voor:</b> Stop ${stopIndex + 1} • ${escapeHtml(st.type === "pickup" ? "Ophalen" : "Bezorgen")} • ${escapeHtml(st.address)}</span>`;
+    if (currentDeliveryStopIndex !== null && stops[currentDeliveryStopIndex]) {
+      const st = stops[currentDeliveryStopIndex];
+      stopLine = `<br/><span class="small"><b>Aflever-stop:</b> ${escapeHtml(st.address)}</span>`;
     }
 
     if (modalShipmentInfo) {
@@ -579,7 +527,7 @@ async function downloadAfleverPdf(shipment) {
   if (modalCancel) modalCancel.addEventListener("click", closeDeliveredModal);
   if (overlay) overlay.addEventListener("click", (e) => { if (e.target === overlay) closeDeliveredModal(); });
 
-  // Supabase Storage upload helpers
+  // Storage upload helpers
   async function uploadFile(bucket, path, fileOrBlob, contentType) {
     const supabaseClient = await ensureClient();
     const { error } = await supabaseClient.storage
@@ -600,8 +548,15 @@ async function downloadAfleverPdf(shipment) {
       const receiver = modalReceiver?.value?.trim() || "";
       const note = modalNote?.value?.trim() || null;
 
-      if (!receiver) { if (modalError) modalError.textContent = "Naam ontvanger is verplicht."; modalReceiver?.focus(); return; }
-      if (!hasSignature) { if (modalError) modalError.textContent = "Handtekening is verplicht."; return; }
+      if (!receiver) {
+        if (modalError) modalError.textContent = "Naam ontvanger is verplicht.";
+        modalReceiver?.focus();
+        return;
+      }
+      if (!hasSignature) {
+        if (modalError) modalError.textContent = "Handtekening is verplicht.";
+        return;
+      }
 
       modalConfirm.disabled = true;
       if (modalError) modalError.textContent = "Uploaden...";
@@ -617,14 +572,14 @@ async function downloadAfleverPdf(shipment) {
 
         let p1 = null, p2 = null;
 
-        if (photo1?.files?.[0]) {
+        if (photo1?.files && photo1.files[0]) {
           const f = photo1.files[0];
-          p1 = `${base}/photo1-${Date.now()}`;
+          p1 = `${base}/photo1-${f.name}`;
           await uploadFile(bucket, p1, f, f.type || "image/jpeg");
         }
-        if (photo2?.files?.[0]) {
+        if (photo2?.files && photo2.files[0]) {
           const f = photo2.files[0];
-          p2 = `${base}/photo2-${Date.now()}`;
+          p2 = `${base}/photo2-${f.name}`;
           await uploadFile(bucket, p2, f, f.type || "image/jpeg");
         }
 
@@ -639,12 +594,12 @@ async function downloadAfleverPdf(shipment) {
           delivered_at: new Date().toISOString(),
         };
 
-        // Multi-stop delivered: save proof on THAT stop + update overall
+        // MULTI-STOP: proof + status on that stop, overall recomputed
         if (typeof currentDeliveryStopIndex === "number") {
           const shipment = currentDeliveryShipment;
           const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
 
-          if (!stops[currentDeliveryStopIndex]) throw new Error("Stop index mismatch.");
+          if (!stops[currentDeliveryStopIndex]) throw new Error("Stop bestaat niet (index mismatch).");
 
           stops[currentDeliveryStopIndex] = {
             ...stops[currentDeliveryStopIndex],
@@ -665,29 +620,34 @@ async function downloadAfleverPdf(shipment) {
           });
 
           const st = stops[currentDeliveryStopIndex];
-          const stopLabel = `Stop ${currentDeliveryStopIndex + 1} • ${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address}`;
-          try { await addEvent(shipment.id, overall, `AFGELEVERD • ${stopLabel}`, currentDeliveryStopIndex); } catch {}
+          try {
+            await addEvent(
+              shipment.id,
+              overall,
+              `Stop ${currentDeliveryStopIndex + 1} • ${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address} • Ontvanger: ${receiver}`,
+              currentDeliveryStopIndex
+            );
+          } catch {}
 
-          closeDeliveredModal();
-          await loadShipments(currentUserId);
-          return;
+        } else {
+          // NORMAL shipment: store proof on top-level columns
+          await updateStatus(
+            currentDeliveryShipment,
+            "AFGELEVERD",
+            {
+              receiver_name: receiver,
+              delivered_note: note,
+              signature_path: sigPath,
+              photo1_path: p1,
+              photo2_path: p2,
+              delivered_at: proof.delivered_at,
+            },
+            note
+          );
         }
 
-        // Single/2-stop delivered (legacy): store on shipment columns
-        await updateStatus(
-          currentDeliveryShipment,
-          "AFGELEVERD",
-          {
-            receiver_name: receiver,
-            delivered_note: note,
-            signature_path: sigPath,
-            photo1_path: p1,
-            photo2_path: p2,
-          },
-          note
-        );
-
         closeDeliveredModal();
+        await loadShipments(currentUserId);
       } catch (err) {
         console.error(err);
         if (modalError) modalError.textContent = "Fout: " + (err?.message || err);
@@ -697,7 +657,7 @@ async function downloadAfleverPdf(shipment) {
     });
   }
 
-  // ---------------- Edit modal
+  // ---------------- Edit modal (stops)
   function toggleEditOther() {
     if (!editType || !editOtherWrap) return;
     editOtherWrap.style.display = editType.value === "overig" ? "block" : "none";
@@ -720,7 +680,7 @@ async function downloadAfleverPdf(shipment) {
       </label>
       <button type="button" class="stopRemove">×</button>
     `;
-    row.querySelector(".stopRemove")?.addEventListener("click", () => row.remove());
+    row.querySelector(".stopRemove").addEventListener("click", () => row.remove());
     editStopsWrap.appendChild(row);
 
     if (window.__dvkMapsReady) attachPlacesToInput(row.querySelector(".editStopAddress"));
@@ -734,6 +694,8 @@ async function downloadAfleverPdf(shipment) {
         type: r.dataset.type === "pickup" ? "pickup" : "delivery",
         address: (r.querySelector(".editStopAddress")?.value || "").trim(),
         prio: !!r.querySelector(".editStopPrio")?.checked,
+        status: null, // we merge back old statuses
+        proof: null,
       }))
       .filter((s) => s.address);
   }
@@ -754,9 +716,10 @@ async function downloadAfleverPdf(shipment) {
     toggleEditOther();
 
     if (editStopsWrap) editStopsWrap.innerHTML = "";
-    const oldStops = normalizeStopsFromDb(shipment);
-    if (oldStops.length) oldStops.forEach((st) => addEditStopRow(st.type, st.address, st.prio));
-    else {
+    const stops = normalizeStopsFromDb(shipment);
+    if (stops.length) {
+      stops.forEach((st) => addEditStopRow(st.type, st.address, st.prio));
+    } else {
       addEditStopRow("pickup", shipment.pickup_address || "", false);
       addEditStopRow("delivery", shipment.delivery_address || "", false);
     }
@@ -772,7 +735,6 @@ async function downloadAfleverPdf(shipment) {
     if (editOverlay) editOverlay.style.display = "none";
     currentEditShipment = null;
   }
-
   if (editCancel) editCancel.addEventListener("click", closeEditModal);
   if (editOverlay) editOverlay.addEventListener("click", (e) => { if (e.target === editOverlay) closeEditModal(); });
 
@@ -784,9 +746,9 @@ async function downloadAfleverPdf(shipment) {
     const shipment_type_other = editTypeOther?.value?.trim() || null;
     const colli_count = parseInt(editColli?.value || "1", 10);
 
-    const editedStops = getStopsFromEditUI();
-    const hasPickup = editedStops.some((s) => s.type === "pickup" && s.address);
-    const hasDelivery = editedStops.some((s) => s.type === "delivery" && s.address);
+    const stops = getStopsFromEditUI();
+    const hasPickup = stops.some((s) => s.type === "pickup" && s.address);
+    const hasDelivery = stops.some((s) => s.type === "delivery" && s.address);
 
     if (!customer_name || !hasPickup || !hasDelivery) {
       if (editError) editError.textContent = "Vul klantnaam + minimaal 1 ophaaladres + minimaal 1 bezorgadres in.";
@@ -801,16 +763,16 @@ async function downloadAfleverPdf(shipment) {
     if (editError) editError.textContent = "Opslaan...";
 
     try {
-      // Preserve old stop statuses + proof by matching index
+      // Preserve old per-stop status/proof by index (best effort)
       const oldStops = normalizeStopsFromDb(currentEditShipment);
-      const mergedStops = editedStops.map((s, i) => ({
+      const mergedStops = stops.map((s, i) => ({
         ...s,
         status: oldStops[i]?.status ?? null,
         proof: oldStops[i]?.proof ?? null,
       }));
 
       const legacy = deriveLegacyFromStops(mergedStops);
-      const overall = mergedStops.length > 2
+      const overall = (mergedStops.length > 2)
         ? computeOverallStatusFromStops(mergedStops)
         : (currentEditShipment.status || "AANGEMAAKT");
 
@@ -847,10 +809,10 @@ async function downloadAfleverPdf(shipment) {
   async function createShipment() {
     msg("Bezig...");
 
-    const customer_name = $("customer_name")?.value?.trim() || "";
-    const shipment_type = $("shipment_type")?.value || "doos";
-    const shipment_type_other = $("shipment_type_other")?.value?.trim() || null;
-    const colli_count = parseInt($("colli_count")?.value || "1", 10);
+    const customer_name = document.getElementById("customer_name")?.value?.trim() || "";
+    const shipment_type = document.getElementById("shipment_type")?.value || "doos";
+    const shipment_type_other = document.getElementById("shipment_type_other")?.value?.trim() || null;
+    const colli_count = parseInt(document.getElementById("colli_count")?.value || "1", 10);
 
     if (!customer_name) { msg("Vul klantnaam in."); return; }
     if (shipment_type === "overig" && !shipment_type_other) { msg("Vul bij 'overig' een type in."); return; }
@@ -890,25 +852,38 @@ async function downloadAfleverPdf(shipment) {
       shipment_type_other: shipment_type === "overig" ? shipment_type_other : null,
       colli_count: Number.isFinite(colli_count) ? colli_count : 1,
       status: "AANGEMAAKT",
-      stops,
     };
 
     try {
       const supabaseClient = await ensureClient();
-      const r = await supabaseClient.from("shipments").insert(baseInsert).select("id, track_code").single();
+
+      // Try insert with stops, fallback if no column
+      let r = await supabaseClient
+        .from("shipments")
+        .insert({ ...baseInsert, stops })
+        .select("*, stops")
+        .single();
+
+      if (r.error && /column/i.test(r.error.message)) {
+        r = await supabaseClient
+          .from("shipments")
+          .insert(baseInsert)
+          .select("*, stops")
+          .single();
+      }
       if (r.error) { msg("Fout: " + r.error.message); return; }
 
-      // Event "AANGEMAAKT" ONLY HERE (avoids double)
       try { await addEvent(r.data.id, "AANGEMAAKT", null); } catch {}
 
       msg(`Aangemaakt: ${r.data.track_code}`);
 
       // reset form
-      $("customer_name").value = "";
-      $("colli_count").value = "1";
-      $("shipment_type").value = "doos";
-      if ($("shipment_type_other")) $("shipment_type_other").value = "";
-      toggleCreateOther();
+      document.getElementById("customer_name").value = "";
+      document.getElementById("colli_count").value = "1";
+      document.getElementById("shipment_type").value = "doos";
+      const other = document.getElementById("shipment_type_other");
+      if (other) other.value = "";
+      if (otherWrap) otherWrap.style.display = "none";
 
       if (hasStopsUI()) {
         stopsWrap.innerHTML = "";
@@ -929,32 +904,100 @@ async function downloadAfleverPdf(shipment) {
 
   if (btnCreate) btnCreate.addEventListener("click", (e) => { e.preventDefault(); createShipment(); });
 
-  // ---------------- Render shipment cards
+  // ---------------- UI buttons
   function mkBtn(text, onClick, className = "") {
-  const b = document.createElement("button");
-  b.textContent = text;
-  if (className) b.className = className;
-  b.addEventListener("click", onClick);
-  return b;
-}
-
-  function labelStatus(st) {
-    const map = {
-      AANGEMAAKT: "Aangemaakt",
-      OPGEHAALD: "Opgehaald",
-      ONDERWEG: "Onderweg",
-      AFGELEVERD: "Afgeleverd",
-      PROBLEEM: "Probleem",
-      GEARCHIVEERD: "Gearchiveerd",
-    };
-    return map[st] || (st || "-");
+    const b = document.createElement("button");
+    b.textContent = text;
+    if (className) b.className = className;
+    b.addEventListener("click", onClick);
+    return b;
   }
 
+  function statusBtnClass(currentStatus, btnStatus) {
+    // highlight active button
+    return currentStatus === btnStatus ? "dvkStatusBtn dvkStatusBtnActive" : "dvkStatusBtn";
+  }
+
+  // ---------------- PDF (Afleverbon) — one PDF per shipment, includes all stops + timeline
+  async function downloadAfleverPdf(shipment) {
+    if (!window.jspdf?.jsPDF) {
+      alert("jsPDF ontbreekt. Controleer script tag in dashboard.html.");
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+
+    let y = 14;
+    doc.setFontSize(16);
+    doc.text(`Afleverbon — ${shipment.track_code}`, 14, y); y += 8;
+
+    doc.setFontSize(11);
+    doc.text(`Klant: ${shipment.customer_name || ""}`, 14, y); y += 6;
+    doc.text(`Type: ${shipment.shipment_type === "overig" ? (shipment.shipment_type_other || "overig") : (shipment.shipment_type || "")}`, 14, y); y += 6;
+    doc.text(`Colli: ${shipment.colli_count ?? ""}`, 14, y); y += 6;
+    doc.text(`Status: ${labelStatus(shipment.status)}`, 14, y); y += 8;
+
+    doc.setFontSize(12);
+    doc.text("Stops:", 14, y); y += 6;
+
+    doc.setFontSize(10);
+    stops.forEach((st, idx) => {
+      const line = `${idx + 1}. ${st.type === "pickup" ? "Ophalen" : "Bezorgen"} — ${st.address} ${st.prio ? "(PRIO)" : ""} — ${st.status ? labelStatus(st.status) : "—"}`;
+      doc.text(line, 14, y);
+      y += 5;
+      if (st.proof?.receiver_name) {
+        doc.text(`   Ontvanger: ${st.proof.receiver_name} • ${st.proof.delivered_at ? new Date(st.proof.delivered_at).toLocaleString() : ""}`, 14, y);
+        y += 5;
+      }
+      if (y > 270) { doc.addPage(); y = 14; }
+    });
+
+    y += 6;
+    doc.setFontSize(12);
+    doc.text("Tijdpad (events):", 14, y); y += 6;
+
+    try {
+      const supabaseClient = await ensureClient();
+      const { data } = await supabaseClient
+        .from("shipment_events")
+        .select("created_at,event_type,note,stop_index")
+        .eq("shipment_id", shipment.id)
+        .order("created_at", { ascending: true });
+
+      doc.setFontSize(10);
+      (data || []).forEach((ev) => {
+        const dt = ev.created_at ? new Date(ev.created_at).toLocaleString() : "";
+        const txt = `${dt} — ${labelStatus(ev.event_type)}${(ev.stop_index !== null && ev.stop_index !== undefined) ? ` (stop ${Number(ev.stop_index) + 1})` : ""}${ev.note ? ` — ${ev.note}` : ""}`;
+        doc.text(txt, 14, y);
+        y += 5;
+        if (y > 270) { doc.addPage(); y = 14; }
+      });
+    } catch {
+      doc.setFontSize(10);
+      doc.text("(Geen events beschikbaar)", 14, y);
+    }
+
+    doc.save(`Afleverbon-${shipment.track_code}.pdf`);
+  }
+
+  // Optional global PDF button (downloads selected/current? we keep per card)
+  if (btnDownloadPdf) {
+    btnDownloadPdf.addEventListener("click", () => {
+      alert("Gebruik de Aflever-PDF knop bij een zending.");
+    });
+  }
+
+  // ---------------- Multi-stop per stop UI
   function renderStopStatusUI(shipment) {
     const wrap = document.createElement("div");
     wrap.className = "stopStatusWrap";
 
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+
+    // Alleen per-adres statuses bij multi-stop
     if (stops.length <= 2) return wrap;
 
     const title = document.createElement("div");
@@ -973,34 +1016,24 @@ async function downloadAfleverPdf(shipment) {
       row.innerHTML = `
         <div class="small">
           <b>${idx + 1}. ${escapeHtml(tag)}:</b> ${escapeHtml(st.address)}
-          ${st.prio ? ' <span style="color:#c00;font-weight:800;">PRIO</span>' : ""}
+          ${st.prio ? ' <span style="color:#0a0;font-weight:800;">PRIO</span>' : ""}
           <br/><span class="small">Huidig: <b>${escapeHtml(cur)}</b></span>
-          ${st.proof?.receiver_name ? `<br/><span class="small"><b>Ontvanger:</b> ${escapeHtml(st.proof.receiver_name)}</span>` : ""}
         </div>
       `;
 
       const btns = document.createElement("div");
       btns.className = "stopStatusButtons";
 
-      btns.appendChild(mkBtn("Opgehaald", () => updateStopStatus(shipment, idx, "OPGEHAALD"), `statusBtn ${st.status==="OPGEHAALD" ? "isActive" : ""}`));
-btns.appendChild(mkBtn("Onderweg", () => updateStopStatus(shipment, idx, "ONDERWEG"), `statusBtn ${st.status==="ONDERWEG" ? "isActive" : ""}`));
-btns.appendChild(mkBtn("Probleem", async () => {
-  const note = prompt("Wat is het probleem?");
-  if (!note) return;
+      btns.appendChild(mkBtn("Opgehaald", () => updateStopStatus(shipment, idx, "OPGEHAALD"), statusBtnClass(st.status, "OPGEHAALD")));
+      btns.appendChild(mkBtn("Onderweg", () => updateStopStatus(shipment, idx, "ONDERWEG"), statusBtnClass(st.status, "ONDERWEG")));
+      btns.appendChild(mkBtn("Probleem", async () => {
+        const note = prompt("Wat is het probleem?");
+        if (!note) return;
+        await updateStopStatus(shipment, idx, "PROBLEEM", note);
+      }, statusBtnClass(st.status, "PROBLEEM")));
 
-  await updateStopStatus(shipment, idx, "PROBLEEM");
-
-  try {
-    await updateShipmentRow(shipment.id, { problem_note: note, status: "PROBLEEM" });
-  } catch (e) {
-    console.warn("problem_note update failed:", e);
-  }
-
-  await loadShipments(currentUserId);
-}));
-
-      // ✅ IMPORTANT: multi-stop delivered MUST open modal
-      btns.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx)));
+      // ✅ BELANGRIJK: Afgeleverd moet MODAL openen (bewijs), per stop
+      btns.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx), statusBtnClass(st.status, "AFGELEVERD")));
 
       row.appendChild(btns);
       wrap.appendChild(row);
@@ -1009,6 +1042,7 @@ btns.appendChild(mkBtn("Probleem", async () => {
     return wrap;
   }
 
+  // ---------------- Render shipment card
   function renderShipmentCard(s) {
     const div = document.createElement("div");
     div.className = "shipment";
@@ -1018,10 +1052,12 @@ btns.appendChild(mkBtn("Probleem", async () => {
     const lastD = [...stops].reverse().find((x) => x.type === "delivery")?.address || s.delivery_address || "";
     const line = stops.length
       ? `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`
-      : `${escapeHtml(s.pickup_address || "")} → ${escapeHtml(s.delivery_address || "")}`;
+      : `${escapeHtml(s.pickup_address)} → ${escapeHtml(s.delivery_address)}`;
 
     const typeText =
-      s.shipment_type === "overig" ? (s.shipment_type_other || "overig") : (s.shipment_type || "");
+      s.shipment_type === "overig"
+        ? (s.shipment_type_other || "overig")
+        : (s.shipment_type || "");
 
     const trackLink = `/DVK/track/?code=${encodeURIComponent(s.track_code)}`;
 
@@ -1029,7 +1065,7 @@ btns.appendChild(mkBtn("Probleem", async () => {
       <div>
         <strong>${escapeHtml(s.track_code)}</strong> — ${escapeHtml(s.customer_name)}<br/>
         <small>${line}</small><br/>
-        <small>Type: ${escapeHtml(typeText)} • Colli: ${s.colli_count ?? ""} • Status: <b>${escapeHtml(s.status || "")}</b></small><br/>
+        <small>Type: ${escapeHtml(typeText)} • Colli: ${s.colli_count ?? ""} • Status: <b>${escapeHtml(labelStatus(s.status || ""))}</b></small><br/>
         <small>Track & Trace: <a href="${trackLink}" target="_blank">${trackLink}</a></small>
         <div class="actions"></div>
         <div class="sub"></div>
@@ -1039,22 +1075,27 @@ btns.appendChild(mkBtn("Probleem", async () => {
     const actions = div.querySelector(".actions");
     const sub = div.querySelector(".sub");
 
+    // Always: PDF + delete
+    actions.appendChild(mkBtn("Aflever-PDF", () => downloadAfleverPdf(s)));
     actions.appendChild(mkBtn("Verwijderen", () => deleteShipment(s)));
-    actions.appendChild(mkBtn("Aflever-PDF", () => downloadAfleverPdf(s))); 
 
-    if (!s.archived_at) {
+    const isArchived = !!s.archived_at || s.status === "GEARCHIVEERD";
+
+    if (!isArchived) {
       actions.appendChild(mkBtn("Wijzigen", () => openEditModal(s)));
 
+      // Normale zending (2 stops): simpele knoppen met highlight
       if (!isMultiStopShipment(s)) {
-        actions.appendChild(mkBtn("Opgehaald", () => updateStatus(s, "OPGEHAALD"), `statusBtn ${s.status==="OPGEHAALD" ? "isActive" : ""}`));
-        actions.appendChild(mkBtn("Onderweg", () => updateStatus(s, "ONDERWEG"), `statusBtn ${s.status==="ONDERWEG" ? "isActive" : ""}`));
+        actions.appendChild(mkBtn("Opgehaald", () => updateStatus(s, "OPGEHAALD"), statusBtnClass(s.status, "OPGEHAALD")));
+        actions.appendChild(mkBtn("Onderweg", () => updateStatus(s, "ONDERWEG"), statusBtnClass(s.status, "ONDERWEG")));
         actions.appendChild(mkBtn("Probleem", async () => {
-        const note = prompt("Wat is het probleem?");
-        if (!note) return;
-        await updateStatus(s, "PROBLEEM", { problem_note: note }, note);
-        }, `statusBtn ${s.status==="PROBLEEM" ? "isActive" : ""}`));
-        actions.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(s, null), `statusBtn ${s.status==="AFGELEVERD" ? "isActive" : ""}`));
+          const note = prompt("Wat is het probleem?");
+          if (!note) return;
+          await updateStatus(s, "PROBLEEM", { problem_note: note }, note);
+        }, statusBtnClass(s.status, "PROBLEEM")));
+        actions.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(s), statusBtnClass(s.status, "AFGELEVERD")));
       } else {
+        // Multi-stop: per-adres UI
         div.appendChild(renderStopStatusUI(s));
       }
 
@@ -1091,34 +1132,41 @@ btns.appendChild(mkBtn("Probleem", async () => {
 
     const all = (data || []).map((s) => {
       s._stopsNorm = normalizeStopsFromDb(s);
+
+      // keep legacy fields aligned
       const legacy = deriveLegacyFromStops(s._stopsNorm);
       if (!s.pickup_address && legacy.pickup_address) s.pickup_address = legacy.pickup_address;
       if (!s.delivery_address && legacy.delivery_address) s.delivery_address = legacy.delivery_address;
+
       return s;
     });
 
     const archived = all.filter((s) => !!s.archived_at || s.status === "GEARCHIVEERD");
     const active = all.filter((s) => !s.archived_at && s.status !== "GEARCHIVEERD");
 
+    // routeplanner cache: exclude delivered
     activeShipmentsCache = active.filter((s) => s.status !== "AFGELEVERD");
     window.activeShipmentsCache = activeShipmentsCache;
 
     if (listEl) listEl.innerHTML = "";
     if (listArchivedEl) listArchivedEl.innerHTML = "";
 
-    if (!active.length) {
+    if (active.length === 0) {
       if (listEl) listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
     } else {
       active.forEach((s) => listEl.appendChild(renderShipmentCard(s)));
     }
 
-    if (!archived.length) {
+    if (archived.length === 0) {
       if (listArchivedEl) listArchivedEl.innerHTML = "<small>Geen gearchiveerde zendingen.</small>";
     } else {
       archived.forEach((s) => listArchivedEl.appendChild(renderShipmentCard(s)));
     }
 
-    if (autoRouteEl?.checked && window.__dvkMapsReady) window.__dvkMaybeAutoRecalcRoute?.();
+    // auto route
+    if (autoRouteEl?.checked && window.__dvkMapsReady) {
+      window.__dvkMaybeAutoRecalcRoute?.();
+    }
   }
 
   // ---------------- Routeplanner + Maps
@@ -1140,7 +1188,9 @@ btns.appendChild(mkBtn("Probleem", async () => {
       });
     }
     if (!directionsService) directionsService = new google.maps.DirectionsService();
-    if (!directionsRenderer && map) directionsRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers: false });
+    if (!directionsRenderer && map) {
+      directionsRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers: false });
+    }
   }
 
   function clearRouteList() { if (routeListEl) routeListEl.innerHTML = ""; }
@@ -1157,7 +1207,7 @@ btns.appendChild(mkBtn("Probleem", async () => {
 
     stops.forEach((s, i) => {
       const row = document.createElement("div");
-      const prio = s.prio ? ' <span style="color:#c00;font-weight:800;">PRIO</span>' : "";
+      const prio = s.prio ? ' <span style="color:#0a0;font-weight:800;">PRIO</span>' : "";
       row.innerHTML = `${i + 1}. ${escapeHtml(s.label)}${prio}`;
       routeListEl.appendChild(row);
     });
@@ -1192,7 +1242,10 @@ btns.appendChild(mkBtn("Probleem", async () => {
           origins: addresses,
           destinations: addresses,
           travelMode: google.maps.TravelMode.DRIVING,
-          drivingOptions: { departureTime: new Date(), trafficModel: google.maps.TrafficModel.BEST_GUESS },
+          drivingOptions: {
+            departureTime: new Date(),
+            trafficModel: google.maps.TrafficModel.BEST_GUESS,
+          },
           unitSystem: google.maps.UnitSystem.METRIC,
         },
         (res, status) => {
@@ -1209,6 +1262,7 @@ btns.appendChild(mkBtn("Probleem", async () => {
     return el.duration?.value ?? Number.POSITIVE_INFINITY;
   }
 
+  // Greedy: deliveries pas nadat pickups van die shipment geweest zijn
   async function computeOrderedStopsGreedy(stops) {
     if (!stops.length) return [];
 
@@ -1216,9 +1270,11 @@ btns.appendChild(mkBtn("Probleem", async () => {
     const matrix = await buildTimeMatrix(addrs);
 
     const pickupNeed = new Map();
-    for (const s of stops) if (s.type === "pickup") pickupNeed.set(s.shipmentId, (pickupNeed.get(s.shipmentId) || 0) + 1);
-
+    for (const s of stops) {
+      if (s.type === "pickup") pickupNeed.set(s.shipmentId, (pickupNeed.get(s.shipmentId) || 0) + 1);
+    }
     const donePickups = new Map();
+
     const remaining = new Map();
     stops.forEach((s) => remaining.set(s.id, s));
 
@@ -1229,14 +1285,16 @@ btns.appendChild(mkBtn("Probleem", async () => {
 
     while (remaining.size > 0) {
       const candidates = [];
-
       for (const s of remaining.values()) {
         if (s.type === "pickup") { candidates.push(s); continue; }
         const need = pickupNeed.get(s.shipmentId) || 0;
         const done = donePickups.get(s.shipmentId) || 0;
         if (need === 0 || done >= need) candidates.push(s);
       }
-      if (!candidates.length) for (const s of remaining.values()) candidates.push(s);
+
+      if (!candidates.length) {
+        for (const s of remaining.values()) candidates.push(s);
+      }
 
       let best = null;
       let bestCost = Number.POSITIVE_INFINITY;
@@ -1251,13 +1309,19 @@ btns.appendChild(mkBtn("Probleem", async () => {
       ordered.push(best);
       remaining.delete(best.id);
 
-      if (best.type === "pickup") donePickups.set(best.shipmentId, (donePickups.get(best.shipmentId) || 0) + 1);
+      if (best.type === "pickup") {
+        donePickups.set(best.shipmentId, (donePickups.get(best.shipmentId) || 0) + 1);
+      }
       currentIndex = idxOfStop(best);
     }
 
+    // laatste stop liefst delivery
     if (ordered.length && ordered[ordered.length - 1].type !== "delivery") {
       const lastDeliveryIdx = [...ordered].map((s, i) => ({ s, i })).reverse().find((x) => x.s.type === "delivery")?.i;
-      if (lastDeliveryIdx != null) ordered.push(ordered.splice(lastDeliveryIdx, 1)[0]);
+      if (lastDeliveryIdx != null) {
+        const d = ordered.splice(lastDeliveryIdx, 1)[0];
+        ordered.push(d);
+      }
     }
 
     return ordered;
@@ -1292,13 +1356,14 @@ btns.appendChild(mkBtn("Probleem", async () => {
       const legs = res?.routes?.[0]?.legs || [];
       let meters = 0;
       let seconds = 0;
-      for (const leg of legs) { meters += leg?.distance?.value || 0; seconds += leg?.duration?.value || 0; }
-
+      for (const leg of legs) {
+        meters += leg?.distance?.value || 0;
+        seconds += leg?.duration?.value || 0;
+      }
       const km = (meters / 1000).toFixed(1);
       const h = Math.floor(seconds / 3600);
       const m = Math.round((seconds % 3600) / 60);
       const timeText = h > 0 ? `${h}u ${m}m` : `${m}m`;
-
       routeSummaryEl.innerHTML = `Totale afstand: ${km} km &nbsp;&nbsp;&nbsp; Totale reistijd: ${timeText}`;
     } catch {
       routeSummaryEl.innerHTML = `Totale afstand: – &nbsp;&nbsp;&nbsp; Totale reistijd: –`;
@@ -1341,7 +1406,7 @@ btns.appendChild(mkBtn("Probleem", async () => {
 
   if (btnPlanRoute) btnPlanRoute.addEventListener("click", () => planOptimalRoute());
 
-  // ✅ Google Maps callback (exactly once)
+  // ✅ EXACT ONE callback for Google Maps
   window.initMaps = function () {
     try {
       window.__dvkMapsReady = true;
@@ -1353,56 +1418,39 @@ btns.appendChild(mkBtn("Probleem", async () => {
     }
   };
 
- // ---------------- INIT (SCHOON & 1x)
-(async () => {
-  try {
-    const user = await requireAuth();
-    currentUserId = user.id;
-
-    // Default stops UI (als aanwezig)
-    if (typeof ensureDefaultStops === "function") {
-      ensureDefaultStops();
-    }
-
-    setTab("active");
-    await loadShipments(currentUserId);
-
-    // Optional realtime refresh (veilig)
+  // ---------------- INIT
+  (async () => {
     try {
-      const supabaseClient = await ensureClient();
-      supabaseClient
-        .channel("shipments_changes")
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "shipments",
-            filter: `driver_id=eq.${currentUserId}`,
-          },
-          () => loadShipments(currentUserId)
-        )
-        .subscribe();
+      const user = await requireAuth();
+      currentUserId = user.id;
+
+      ensureDefaultStops();
+      setTab("active");
+      await loadShipments(currentUserId);
+
+      // Optional realtime refresh (safe)
+      try {
+        const supabaseClient = await ensureClient();
+        supabaseClient
+          .channel("shipments_changes")
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "shipments",
+              filter: `driver_id=eq.${currentUserId}`,
+            },
+            () => loadShipments(currentUserId)
+          )
+          .subscribe();
+      } catch (e) {
+        console.warn("Realtime subscribe skipped:", e);
+      }
     } catch (e) {
-      console.warn("Realtime subscribe skipped:", e);
+      console.error("INIT error:", e);
+      msg("Init fout: " + (e?.message || e));
     }
-  } catch (e) {
-    console.error("INIT error:", e);
-    msg("Init fout: " + (e?.message || e));
-  }
+  })();
+
 })();
-
-// ---------------- Google Maps callback (MOET 1x bestaan)
-window.initMaps = function () {
-  try {
-    console.log("Google Maps geladen");
-    window.__dvkMapsReady = true;
-
-    ensureMapInit();
-    initAutocomplete();
-
-    if (autoRouteEl?.checked) planOptimalRoute();
-  } catch (e) {
-    console.error("initMaps error:", e);
-  }
-};
