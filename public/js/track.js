@@ -152,10 +152,25 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     }).join("");
 
-    stopsCard.innerHTML = `
-      <div style="font-weight:800;">Stops (${stops.length})</div>
-      ${stopHtml || `<div class="muted">Geen stops.</div>`}
-    `;
+    // Als er geen events zijn, bouw tijdpad op uit stops
+let timelineHtml = evHtml;
+
+if (!timelineHtml) {
+  const stopEvents = (stops || []).map((st, i) => {
+    const type = st.type === "pickup" ? "Ophalen" : "Bezorgen";
+    const label = `${i+1}. ${type}: ${st.address} → ${st.status || "Onbekend"}`;
+    return `<li>${label}</li>`;
+  }).join("");
+
+  timelineHtml = stopEvents || '<li class="muted">Nog geen tijdpad.</li>';
+}
+
+sCard.innerHTML = `
+  <div style="font-weight:800;">Tijdpad</div>
+  <ul style="margin:8px 0 0 18px;">
+    ${timelineHtml}
+  </ul>
+`;
 
     // Render events (tijdpad)
     const evHtml = (events || []).map(e => {
