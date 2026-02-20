@@ -1,3 +1,5 @@
+// public/js/track.js
+
 document.addEventListener("DOMContentLoaded", () => {
   const input = document.getElementById("codeInput");
   const btn = document.getElementById("goBtn");
@@ -29,27 +31,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function esc(s) {
-    return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-  }
-
-  function normalizeStops(sh) {
-    let raw = sh?.stops;
-    if (typeof raw === "string") {
-      try { raw = JSON.parse(raw); } catch { raw = null; }
-    }
-    if (Array.isArray(raw) && raw.length) {
-      return raw.map(x => ({
-        type: (x.type || "delivery") === "pickup" ? "pickup" : "delivery",
-        address: String(x.address ?? "").trim(),
-        prio: !!x.prio,
-        status: x.status ?? null,
-        proof: x.proof ?? null,
-      })).filter(s => s.address);
-    }
-    const out = [];
-    if (sh.pickup_address) out.push({ type:"pickup", address: sh.pickup_address, prio: !!sh.pickup_prio, status:null, proof:null });
-    if (sh.delivery_address) out.push({ type:"delivery", address: sh.delivery_address, prio: !!sh.delivery_prio, status:null, proof:null });
-    return out;
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
   }
 
   function labelStatus(st) {
@@ -61,7 +46,76 @@ document.addEventListener("DOMContentLoaded", () => {
       PROBLEEM: "Probleem",
       GEARCHIVEERD: "Gearchiveerd",
     };
-    return map[st] || (st || "-");
+    return map[String(st || "").toUpperCase()] || (st || "Onbekend");
+  }
+
+  function eventTypeToNice(eventType) {
+    const e = String(eventType || "").toUpperCase();
+    const map = {
+      AANGEMAAKT: "Aangemaakt",
+      OPGEHAALD: "Opgehaald",
+      ONDERWEG: "Onderweg",
+      AFGELEVERD: "Afgeleverd",
+      PROBLEEM: "Probleem",
+    };
+    return map[e] || (eventType || "Event");
+  }
+
+  function fmtDateTimeNL(v) {
+    if (!v) return "";
+    try {
+      return new Date(v).toLocaleString("nl-NL", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  }
+
+  // Laat in de UI DVK2026 + 6 cijfers zien (maar database blijft volledige code)
+  function displayTrackCode(trackCode) {
+    const s = String(trackCode || "");
+    const m = s.match(/^(DVK)(\d{4})(\d+)/i);
+    if (!m) return s;
+    const prefix = m[1].toUpperCase();
+    const year = m[2];
+    const rest = m[3] || "";
+    return `${prefix}${year}${rest.slice(0, 6)}`; // max 6 cijfers na het jaar
+  }
+
+  function normalizeStops(sh) {
+    let raw = sh?.stops;
+
+    // stops kan JSON-string zijn
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch { raw = null; }
+    }
+
+    // Moderne stops-array
+    if (Array.isArray(raw) && raw.length) {
+      return raw
+        .map((x, idx) => ({
+          stop_index: (x.stop_index === 0 || x.stop_index) ? Number(x.stop_index) : idx,
+          type: (String(x.type || "delivery").toLowerCase() === "pickup") ? "pickup" : "delivery",
+          address: String(x.address ?? "").trim(),
+          prio: !!x.prio,
+          status: x.status ?? null,
+          proof: x.proof ?? null,
+          created_at: x.created_at ?? null,
+          updated_at: x.updated_at ?? null,
+        }))
+        .filter(s => s.address);
+    }
+
+    // Fallback
+    const out = [];
+    if (sh.pickup_address) out.push({ stop_index: 0, type:"pickup", address: String(sh.pickup_address).trim(), prio: !!sh.pickup_prio, status:null, proof:null });
+    if (sh.delivery_address) out.push({ stop_index: 1, type:"delivery", address: String(sh.delivery_address).trim(), prio: !!sh.delivery_prio, status:null, proof:null });
+    return out;
   }
 
   async function ensureClient() {
@@ -69,17 +123,113 @@ document.addEventListener("DOMContentLoaded", () => {
     return window.supabaseClient;
   }
 
+  function renderShipmentCard(sh, stops) {
+    const pickupStops = (stops || []).filter(s => s.type === "pickup");
+    const deliveryStops = (stops || []).filter(s => s.type === "delivery");
+
+    const listHtml = (arr) => {
+      if (!arr.length) return `<div class="muted">—</div>`;
+      return arr.map((s, i) => {
+        const prefix = arr.length > 1 ? `${i + 1}. ` : "";
+        return `<div style="margin-top:6px;">${esc(prefix + s.address)}</div>`;
+      }).join("");
+    };
+
+    // “Witruimte” zoals je schets: alleen marge tussen klant en adressen
+    const addressesBlock = `
+      <div style="margin-top:10px;">
+        <div style="font-weight:800;">Ophaaladres${pickupStops.length > 1 ? "sen" : ""}</div>
+        <div style="margin-top:6px;">${listHtml(pickupStops)}</div>
+
+        <div style="height:12px;"></div>
+
+        <div style="font-weight:800;">Bezorgadres${deliveryStops.length > 1 ? "sen" : ""}</div>
+        <div style="margin-top:6px;">${listHtml(deliveryStops)}</div>
+      </div>
+    `;
+
+    shipmentCard.innerHTML = `
+      <div style="font-weight:800;font-size:16px;">
+        ${esc(displayTrackCode(sh.track_code))}
+      </div>
+
+      <div style="margin-top:6px;">
+        <b>Klant:</b> ${esc(sh.customer_name || "-")}
+      </div>
+
+      ${addressesBlock}
+
+      <div class="muted" style="margin-top:10px;">
+        Type: ${esc(sh.type || "-")} • Colli: ${esc(sh.colli ?? sh.colli_count ?? "-")}
+      </div>
+
+      <div class="status-badge" style="margin-top:8px;">
+        ${esc(labelStatus(sh.status))}
+      </div>
+    `;
+  }
+
+  function renderStopsCard(stops, sh) {
+    if (!stopsCard) return;
+    const stopsSafe = Array.isArray(stops) ? stops : [];
+
+    // Je wilde stops niet per se in een aparte kaart. Als je hem leeg wil houden:
+    stopsCard.innerHTML = "";
+
+    // Als je 'm later toch wil tonen, zet dan hieronder je HTML terug.
+  }
+
+  function buildTimelineFromEvents(events) {
+    const eventsSafe = Array.isArray(events) ? events : [];
+    if (!eventsSafe.length) return "";
+
+    return eventsSafe.map((e) => {
+      const dt = fmtDateTimeNL(e.created_at);
+      const nice = eventTypeToNice(e.event_type || e.status);
+      const si = (e.stop_index === 0 || e.stop_index) ? ` (stop ${Number(e.stop_index) + 1})` : "";
+      const note = e.note ? ` — ${esc(e.note)}` : "";
+      return `<li><b>${esc(nice)}</b>${esc(si)}${dt ? ` • <span class="muted">${esc(dt)}</span>` : ""}${note}</li>`;
+    }).join("");
+  }
+
+  function buildTimelineFromStops(stops) {
+    const stopsSafe = Array.isArray(stops) ? stops : [];
+    if (!stopsSafe.length) return `<li class="muted">Nog geen tijdpad.</li>`;
+
+    return stopsSafe.map((st, i) => {
+      const type = st.type === "pickup" ? "Ophalen" : "Bezorgen";
+      const statusTxt = labelStatus(st.status || "Onbekend");
+      return `<li>${i + 1}. ${esc(type)}: ${esc(st.address)} — <b>${esc(statusTxt)}</b></li>`;
+    }).join("");
+  }
+
+  function renderTimeline(events, stops) {
+    if (!eventsCard) return;
+
+    let items = buildTimelineFromEvents(events);
+    if (!items) items = buildTimelineFromStops(stops);
+
+    eventsCard.innerHTML = `
+      <div style="font-weight:800;">Tijdpad</div>
+      <ul style="margin:8px 0 0 18px;">
+        ${items}
+      </ul>
+    `;
+  }
+
   async function load() {
     const code = qParam("code");
     if (!code) {
-      subLine.textContent = "Geen code meegegeven (?code=DVK...)";
+      if (subLine) subLine.textContent = "Geen code meegegeven (?code=DVK...)";
       return;
     }
 
-    subLine.textContent = `Code: ${code} • laden…`;
+    // Alleen "laden..." (geen "Code: ...")
+    if (subLine) subLine.textContent = "Laden…";
 
     const supabaseClient = await ensureClient();
 
+    // Shipment ophalen
     const { data: sh, error } = await supabaseClient
       .from("shipments")
       .select("*, stops")
@@ -87,163 +237,42 @@ document.addEventListener("DOMContentLoaded", () => {
       .single();
 
     if (error || !sh) {
-      subLine.textContent = "Niet gevonden.";
+      if (subLine) subLine.textContent = "";
       shipmentCard.innerHTML = `<b>Niet gevonden</b><div class="muted">Controleer de code.</div>`;
-      stopsCard.innerHTML = "";
-      eventsCard.innerHTML = "";
+      if (stopsCard) stopsCard.innerHTML = "";
+      if (eventsCard) eventsCard.innerHTML = "";
       return;
     }
 
     const stops = normalizeStops(sh);
-    const events = [];
 
-    // Render shipment
-    subLine.textContent = "";
+    // Events ophalen (tijdpad met datum/tijd)
+    let events = [];
+    try {
+      const evRes = await supabaseClient
+        .from("shipment_events")
+        .select("event_type, note, stop_index, created_at")
+        .eq("shipment_id", sh.id)
+        .order("created_at", { ascending: true });
 
-    // --- Adressen blok (ophaal + bezorg) uit stops ---
-const pickupStops = (stops || []).filter(s => (s.type || "").toLowerCase() === "pickup");
-const dropStops   = (stops || []).filter(s => (s.type || "").toLowerCase() === "dropoff");
+      if (!evRes.error && Array.isArray(evRes.data)) {
+        events = evRes.data;
+      }
+    } catch {
+      // stil falen, we hebben fallback op stops
+    }
 
-const fmtAddr = (s) => {
-  const parts = [s.address, s.city, s.country].filter(Boolean);
-  return parts.join(", ");
-};
+    // Render
+    if (subLine) subLine.textContent = ""; // helemaal leeg
 
-const pickupHtml = pickupStops.length
-  ? pickupStops.map((s, i) => `<div style="margin-top:6px;">${pickupStops.length > 1 ? (i+1) + ". " : ""}${esc(fmtAddr(s))}</div>`).join("")
-  : `<div style="margin-top:6px;" class="muted">Geen ophaaladres</div>`;
+    renderShipmentCard(sh, stops);
+    renderStopsCard(stops, sh);
+    renderTimeline(events, stops);
 
-const dropHtml = dropStops.length
-  ? dropStops.map((s, i) => `<div style="margin-top:6px;">${dropStops.length > 1 ? (i+1) + ". " : ""}${esc(fmtAddr(s))}</div>`).join("")
-  : `<div style="margin-top:6px;" class="muted">Geen bezorgadres</div>`;
-
-const addressesBlock = `
-  <div style="background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; margin-top:10px;">
-    <div style="font-weight:800; margin-bottom:6px;">Ophaaladres${pickupStops.length > 1 ? "sen" : ""}</div>
-    ${pickupHtml}
-    <div style="height:10px;"></div>
-    <div style="font-weight:800; margin-bottom:6px;">Bezorgadres${dropStops.length > 1 ? "sen" : ""}</div>
-    ${dropHtml}
-  </div>
-`;
-
-    shipmentCard.innerHTML = `
-  <div style="font-weight:800;font-size:16px;">
-    ${esc(sh.track_code)}
-  </div>
-
-  <div style="margin-top:4px; font-weight:500; color:#555;">
-    ${sh.customer_name ? "Klant: " + esc(sh.customer_name) : ""}
-  </div>
-
-  <div class="muted">
-    Type: ${esc(sh.type)} • Colli: ${esc(sh.colli)}
-  </div>
-
-  <div class="status-badge">
-    ${labelStatus(sh.status)}
-  </div>
-`;
-
-    // Render stops
-    const stopHtml = stops.map((s, idx) => {
-      const tag = s.type === "pickup" ? "Ophalen" : "Bezorgen";
-      const st = s.status ? labelStatus(s.status) : "—";
-      const prio = s.prio ? ` <span class="prio">PRIO</span>` : "";
-
-      // proof: multi-stop proof in stop.proof; single proof on shipment fields
-      const proof = s.proof || null;
-      const singleProof = (stops.length <= 2 && s.type === "delivery" && sh.status === "AFGELEVERD")
-        ? {
-            receiver_name: sh.receiver_name,
-            delivered_note: sh.delivered_note,
-            signature_path: sh.signature_path,
-            photo1_path: sh.photo1_path,
-            photo2_path: sh.photo2_path,
-            delivered_at: sh.delivered_at,
-          }
-        : null;
-
-      const p = proof || singleProof;
-
-      const proofHtml = p ? `
-        <div class="muted" style="margin-top:6px;">
-          <div><b>Ontvanger:</b> ${esc(p.receiver_name || "")}</div>
-          ${p.delivered_at ? `<div><b>Tijd:</b> ${esc(new Date(p.delivered_at).toLocaleString())}</div>` : ""}
-          ${p.delivered_note ? `<div><b>Opmerking:</b> ${esc(p.delivered_note)}</div>` : ""}
-          <div>${p.signature_path ? `Handtekening: ✅` : `Handtekening: —`}</div>
-          <div>${(p.photo1_path || p.photo2_path) ? `Foto’s: ✅` : `Foto’s: —`}</div>
-        </div>
-      ` : "";
-
-      return `
-        <div class="stop">
-          <div><b>${idx + 1}. ${esc(tag)}:</b> ${esc(s.address)}${prio}</div>
-          <div class="muted">Status: <b>${esc(st)}</b></div>
-          ${proofHtml}
-        </div>
-      `;
-    }).join("");
-
-    // Als er geen events zijn, bouw tijdpad op uit stops
-let timelineHtml = "";
-
-if (!timelineHtml) {
-  const stopEvents = (stops || []).map((st, i) => {
-    const type = st.type === "pickup" ? "Ophalen" : "Bezorgen";
-    const label = `${i+1}. ${type}: ${st.address} → ${st.status || "Onbekend"}`;
-    return `<li>${label}</li>`;
-  }).join("");
-
-  timelineHtml = stopEvents || '<li class="muted">Nog geen tijdpad.</li>';
-}
-
-eventsCard.innerHTML = `
-  <div style="font-weight:800;">Tijdpad</div>
-  <ul style="margin:8px 0 0 18px;">
-    ${timelineHtml}
-  </ul>
-`;
-
-    // ===== Tijdpad (altijd tonen) =====
-const stopsSafe  = Array.isArray(stops)  ? stops  : [];
-const eventsSafe = Array.isArray(events) ? events : [];
-
-let timelineItems = "";
-
-// 1) Als er echte events zijn
-if (eventsSafe.length) {
-  timelineItems = eventsSafe.map(ev => {
-    const t = ev.created_at ? new Date(ev.created_at).toLocaleString("nl-NL") : "";
-    const msg = ev.event_type || ev.status || "Event";
-    return `<li>${t ? `<strong>${t}</strong> — ` : ""}${esc(msg)}</li>`;
-  }).join("");
-}
-
-// 2) Anders fallback uit stops
-if (!timelineItems) {
-  timelineItems = stopsSafe.map((st, i) => {
-    const type = st?.type === "pickup" ? "Ophalen" : "Bezorgen";
-    const addr = st?.address || "-";
-    const stt  = st?.status || "Onbekend";
-    return `<li>${i + 1}. ${type}: ${esc(addr)} — <strong>${esc(stt)}</strong></li>`;
-  }).join("");
-}
-
-// 3) Als zelfs dat leeg is
-if (!timelineItems) timelineItems = `<li class="muted">Nog geen tijdpad.</li>`;
-
-eventsCard.innerHTML = `
-  <div style="font-weight:800;">Tijdpad</div>
-  <ul style="margin:8px 0 0 18px;">
-    ${timelineItems}
-  </ul>
-`;
-
-    // PDF knop
+    // PDF knop (veilig)
     if (btnPdf) {
-  btnPdf.onclick = () => makePdf(sh, stops, events || []);
-}
+      btnPdf.onclick = () => makePdf(sh, stops, events || []);
+    }
   }
 
   async function makePdf(sh, stops, events) {
@@ -266,36 +295,33 @@ eventsCard.innerHTML = `
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text("Afleverbon / Bewijs van levering", 40, y); y += 22;
+    doc.text("Track & Trace", 40, y); y += 22;
 
-    line(`Trackcode: ${sh.track_code}`, true);
-    line(`Klant: ${sh.customer_name || ""}`);
-    line(`Type: ${sh.shipment_type === "overig" ? (sh.shipment_type_other || "overig") : (sh.shipment_type || "")} • Colli: ${sh.colli_count ?? ""}`);
-    line(`Status: ${sh.status}`);
+    line(`Trackcode: ${displayTrackCode(sh.track_code)}`, true);
+    line(`Klant: ${sh.customer_name || "-"}`);
+    line(`Type: ${sh.type || "-"} • Colli: ${sh.colli ?? sh.colli_count ?? "-"}`);
+    line(`Status: ${labelStatus(sh.status)}`);
 
-    y += 8;
+    y += 10;
     line("Adressen:", true);
-    stops.forEach((s, idx) => {
+    (stops || []).forEach((s, idx) => {
       const tag = s.type === "pickup" ? "Ophalen" : "Bezorgen";
-      const st = s.status || "";
-      line(`${idx + 1}. ${tag}: ${s.address} ${s.prio ? "(PRIO)" : ""} — ${st}`);
-      const p = s.proof || null;
-      if (p) {
-        line(`   Ontvanger: ${p.receiver_name || ""}`);
-        if (p.delivered_at) line(`   Tijd: ${new Date(p.delivered_at).toLocaleString()}`);
-        if (p.delivered_note) line(`   Opmerking: ${p.delivered_note}`);
-      }
+      line(`${idx + 1}. ${tag}: ${s.address} ${s.prio ? "(PRIO)" : ""} — ${labelStatus(s.status || "Onbekend")}`);
     });
 
-    y += 8;
+    y += 10;
     line("Tijdpad:", true);
-    events.forEach((e) => {
-      const t = e.created_at ? new Date(e.created_at).toLocaleString() : "";
-      const si = (e.stop_index === 0 || e.stop_index) ? ` (stop ${Number(e.stop_index) + 1})` : "";
-      line(`${t} — ${e.event_type}${si}${e.note ? ` • ${e.note}` : ""}`);
-    });
+    if (Array.isArray(events) && events.length) {
+      events.forEach((e) => {
+        const t = fmtDateTimeNL(e.created_at);
+        const si = (e.stop_index === 0 || e.stop_index) ? ` (stop ${Number(e.stop_index) + 1})` : "";
+        line(`${eventTypeToNice(e.event_type)}${si}${t ? ` • ${t}` : ""}${e.note ? ` • ${e.note}` : ""}`);
+      });
+    } else {
+      line("Nog geen events. Tijdpad gebaseerd op stops.");
+    }
 
-    doc.save(`Afleverbon-${sh.track_code}.pdf`);
+    doc.save(`Track-${displayTrackCode(sh.track_code)}.pdf`);
   }
 
   btnRefresh?.addEventListener("click", load);
