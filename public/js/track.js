@@ -100,6 +100,33 @@ document.addEventListener("DOMContentLoaded", () => {
     // Render shipment
     subLine.textContent = "";
 
+    // --- Adressen blok (ophaal + bezorg) uit stops ---
+const pickupStops = (stops || []).filter(s => (s.type || "").toLowerCase() === "pickup");
+const dropStops   = (stops || []).filter(s => (s.type || "").toLowerCase() === "dropoff");
+
+const fmtAddr = (s) => {
+  const parts = [s.address, s.city, s.country].filter(Boolean);
+  return parts.join(", ");
+};
+
+const pickupHtml = pickupStops.length
+  ? pickupStops.map((s, i) => `<div style="margin-top:6px;">${pickupStops.length > 1 ? (i+1) + ". " : ""}${esc(fmtAddr(s))}</div>`).join("")
+  : `<div style="margin-top:6px;" class="muted">Geen ophaaladres</div>`;
+
+const dropHtml = dropStops.length
+  ? dropStops.map((s, i) => `<div style="margin-top:6px;">${dropStops.length > 1 ? (i+1) + ". " : ""}${esc(fmtAddr(s))}</div>`).join("")
+  : `<div style="margin-top:6px;" class="muted">Geen bezorgadres</div>`;
+
+const addressesBlock = `
+  <div style="background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; margin-top:10px;">
+    <div style="font-weight:800; margin-bottom:6px;">Ophaaladres${pickupStops.length > 1 ? "sen" : ""}</div>
+    ${pickupHtml}
+    <div style="height:10px;"></div>
+    <div style="font-weight:800; margin-bottom:6px;">Bezorgadres${dropStops.length > 1 ? "sen" : ""}</div>
+    ${dropHtml}
+  </div>
+`;
+
     shipmentCard.innerHTML = `
   <div style="font-weight:800;font-size:16px;">
     ${esc(sh.track_code)}
