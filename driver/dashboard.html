@@ -208,19 +208,20 @@
     </div>
   </div>
 
-  <!-- Scripts onderaan, vaste volgorde -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="/DVK/public/js/supabase-config.js?v=11"></script>
-  <script src="/DVK/public/js/dashboard.js?v=12"></script>
+  <!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-   <!-- jsPDF (voor afleverbon PDF) -->
-   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>   
+<!-- jsPDF (voor afleverbon PDF) -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
-  <!-- Google Maps als laatste -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDXE-jkOXsKxIdyXarrbBsA3ut_C3nvWMI&libraries=places&callback=initMaps"
-    async
-    defer
-  ></script>
+<!-- jouw config + dashboard -->
+<script src="/DVK/public/js/supabase-config.js?v=1"></script>
+<script src="/DVK/public/js/dashboard.js?v=1"></script>
+
+<!-- Google Maps als laatste (MET callback=initMaps en libraries=places) -->
+<script
+  src="https://maps.googleapis.com/maps/api/js?key=JOUW_KEY&libraries=places&callback=initMaps"
+  async defer
+></script>
 </body>
 </html>
