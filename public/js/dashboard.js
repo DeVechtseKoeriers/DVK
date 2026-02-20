@@ -98,6 +98,14 @@
   const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
 
   // ---------------- Helpers
+  function makeTrackCode() {
+  const year = new Date().getFullYear();              // 2026
+  const suffix = Math.floor(Math.random() * 1_000_000) // 0..999999
+    .toString()
+    .padStart(6, "0");                                // altijd 6 cijfers
+  return `DVK${year}${suffix}`;
+}
+  
   function msg(t) { if (createMsg) createMsg.textContent = t || ""; }
   function routeMsg(t) { if (routeMsgEl) routeMsgEl.textContent = t || ""; }
 
@@ -803,8 +811,14 @@
 
   // ---------------- Create shipment
   function generateTrackcode() {
-    return `DVK${new Date().getFullYear()}${Math.floor(Date.now() / 1000)}`;
-  }
+    function generateTrackcode() {
+  const year = new Date().getFullYear();
+  const random6 = Math.floor(Math.random() * 1000000)
+    .toString()
+    .padStart(6, "0");
+
+  return `DVK${year}${random6}`;
+}
 
   async function createShipment() {
     msg("Bezig...");
