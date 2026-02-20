@@ -202,7 +202,9 @@ eventsCard.innerHTML = `
 `;
 
     // PDF knop
-    btnPdf.onclick = () => makePdf(sh, stops, events || []);
+    f (btnPdf) {
+  btnPdf.onclick = () => makePdf(sh, stops, events || []);
+}
   }
 
   async function makePdf(sh, stops, events) {
