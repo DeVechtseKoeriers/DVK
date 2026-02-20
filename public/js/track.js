@@ -106,7 +106,7 @@ document.addEventListener("DOMContentLoaded", () => {
   </div>
 
   <div style="margin-top:4px; font-weight:500; color:#555;">
-    ${esc(sh.customer_name || "")}
+    ${sh.customer_name ? "Klant: " + esc(sh.customer_name) : ""}
   </div>
 
   <div class="muted">
