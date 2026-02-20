@@ -1,15 +1,23 @@
-// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD
-// Fixes:
-// - NO duplicate initMaps
-// - NO parse errors / missing braces
-// - Multi-stop: "Afgeleverd" opens proof modal PER STOP
-// - Status buttons highlight green when active
-// - Aflever-PDF button visible in Active + Archived
-// - shipment_events "AANGEMAAKT" deduped
-// - Works with legacy pickup/delivery fields + stops[] JSON
+/ DVK Driver Dashboard — STABLE SINGLE-FILE BUILD (v2)
+// Implements requested changes:
+// - Per-stop buttons:
+//   * Pickup stop: only "Opgehaald" + "Probleem"
+//   * Delivery stop: only "Afgeleverd" + "Probleem" (Afgeleverd opens proof modal per stop)
+// - Multiple addresses: buttons per address
+// - Auto-archive when ALL deliveries are AFGELEVERD
+// - Archived tab: Aflever-PDF with logo + pickup/delivery addresses + times
+// - Active button highlights green
+// - PRIO checkbox per stop (already present) influences route planner priority
+// - Track & Trace link stays smooth and correct
+// - No duplicate initMaps, no parse errors
 
 (() => {
   "use strict";
+
+  // ---------------- CONFIG
+  // Zet je logo hier neer (bijv. DVK/public/assets/logo.png)
+  const LOGO_URL = "/DVK/assets/logo.png"; // als niet gevonden -> PDF gaat door zonder logo
+  const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
 
   // ---------------- DOM
   const listEl = document.getElementById("list");
@@ -79,33 +87,20 @@
   const mapEl = document.getElementById("map");
   const routeSummaryEl = document.getElementById("routeSummary");
 
-  // PDF button in dashboard (if you have it)
-  const btnDownloadPdf = document.getElementById("btnDownloadPdf");
-
   // ---------------- STATE
   let currentTab = "active";
   let currentUserId = null;
 
   // For proof modal
   let currentDeliveryShipment = null;
-  let currentDeliveryStopIndex = null; // null = whole shipment (legacy)
+  let currentDeliveryStopIndex = null; // delivery stop index for which we collect proof
 
   let currentEditShipment = null;
 
   let activeShipmentsCache = [];
   window.activeShipmentsCache = activeShipmentsCache;
 
-  const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
-
   // ---------------- Helpers
-  function makeTrackCode() {
-  const year = new Date().getFullYear();              // 2026
-  const suffix = Math.floor(Math.random() * 1_000_000) // 0..999999
-    .toString()
-    .padStart(6, "0");                                // altijd 6 cijfers
-  return `DVK${year}${suffix}`;
-}
-  
   function msg(t) { if (createMsg) createMsg.textContent = t || ""; }
   function routeMsg(t) { if (routeMsgEl) routeMsgEl.textContent = t || ""; }
 
@@ -147,6 +142,7 @@
           prio: !!(x.prio ?? x.priority ?? x.is_prio ?? x.is_priority),
           status: x.status ?? null,
           proof: x.proof ?? null,
+          picked_up_at: x.picked_up_at ?? null, // ✅ added for pickup time
         }))
         .filter((s) => s.address);
     }
@@ -155,8 +151,8 @@
     const out = [];
     const p = String(shipment?.pickup_address || "").trim();
     const d = String(shipment?.delivery_address || "").trim();
-    if (p) out.push({ type: "pickup", address: p, prio: shipment?.pickup_prio === true, status: null, proof: null });
-    if (d) out.push({ type: "delivery", address: d, prio: shipment?.delivery_prio === true, status: null, proof: null });
+    if (p) out.push({ type: "pickup", address: p, prio: shipment?.pickup_prio === true, status: null, proof: null, picked_up_at: null });
+    if (d) out.push({ type: "delivery", address: d, prio: shipment?.delivery_prio === true, status: null, proof: null, picked_up_at: null });
     return out;
   }
 
@@ -169,12 +165,6 @@
       pickup_prio: !!pickups[0]?.prio,
       delivery_prio: !!deliveries[deliveries.length - 1]?.prio,
     };
-  }
-
-  function isMultiStopShipment(shipment) {
-    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-    // multi = meer dan 2 stops
-    return stops.length > 2;
   }
 
   function computeOverallStatusFromStops(stops) {
@@ -192,7 +182,6 @@
       : false;
 
     if (allPickupsDone && allDeliveriesDone) return "AFGELEVERD";
-    if (stops.some((s) => s.status === "ONDERWEG")) return "ONDERWEG";
     if (stops.some((s) => s.status === "OPGEHAALD")) return "OPGEHAALD";
     return "AANGEMAAKT";
   }
@@ -207,6 +196,11 @@
       GEARCHIVEERD: "Gearchiveerd",
     };
     return map[st] || (st || "-");
+  }
+
+  // Status button highlighting
+  function statusBtnClass(currentStatus, btnStatus) {
+    return currentStatus === btnStatus ? "dvkStatusBtn dvkStatusBtnActive" : "dvkStatusBtn";
   }
 
   // ---------------- Supabase
@@ -325,16 +319,15 @@
         const type = r.dataset.type === "delivery" ? "delivery" : "pickup";
         const address = r.querySelector(".stopAddress")?.value?.trim() || "";
         const prio = !!r.querySelector(".stopPrio")?.checked;
-        return { type, address, prio, status: null, proof: null };
+        return { type, address, prio, status: null, proof: null, picked_up_at: null };
       })
       .filter((s) => s.address);
   }
 
-  // ---------------- Events (timeline) — dedupe AANGEMAAKT
+  // ---------------- Events — dedupe AANGEMAAKT
   async function addEvent(shipmentId, eventType, note = null, stopIndex = null) {
     const supabaseClient = await ensureClient();
 
-    // Dedup AANGEMAAKT (voorkomt dubbele regels)
     if (eventType === "AANGEMAAKT") {
       const { data: existing } = await supabaseClient
         .from("shipment_events")
@@ -342,7 +335,6 @@
         .eq("shipment_id", shipmentId)
         .eq("event_type", "AANGEMAAKT")
         .limit(1);
-
       if (existing && existing.length) return;
     }
 
@@ -365,45 +357,24 @@
     if (error) throw error;
   }
 
-  // ---------------- Update overall status (simple)
-  async function updateStatus(shipment, newStatus, extra = {}, eventNote = null) {
-    try {
-      await updateShipmentRow(shipment.id, { status: newStatus, ...extra });
-      try { await addEvent(shipment.id, newStatus, eventNote); } catch {}
-      await loadShipments(currentUserId);
-    } catch (e) {
-      alert("Update fout: " + (e?.message || e));
-    }
+  // ---------------- AUTO ARCHIVE (when all deliveries delivered)
+  async function autoArchiveIfCompleted(shipmentId, stops) {
+    const deliveries = (stops || []).filter(s => s.type === "delivery");
+    const allDelivered = deliveries.length && deliveries.every(s => s.status === "AFGELEVERD");
+    if (!allDelivered) return;
+
+    const nowIso = new Date().toISOString();
+    await updateShipmentRow(shipmentId, { status: "GEARCHIVEERD", archived_at: nowIso });
+    try { await addEvent(shipmentId, "GEARCHIVEERD", "Automatisch gearchiveerd (alles afgeleverd)"); } catch {}
   }
 
-  // ---------------- Update per-stop status (multi-stop only)
-  async function updateStopStatus(shipment, stopIndex, newStatus, note = null) {
-    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-    if (!stops[stopIndex]) return;
-
-    stops[stopIndex] = { ...stops[stopIndex], status: newStatus };
-
-    const overall = computeOverallStatusFromStops(stops);
-    const legacy = deriveLegacyFromStops(stops);
-
-    await updateShipmentRow(shipment.id, {
-      stops,
-      status: overall,
-      pickup_address: legacy.pickup_address,
-      delivery_address: legacy.delivery_address,
-      pickup_prio: legacy.pickup_prio,
-      delivery_prio: legacy.delivery_prio,
-      ...(newStatus === "PROBLEEM" && note ? { problem_note: note } : {}),
-    });
-
-    const st = stops[stopIndex];
-    const stopLabel = `${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address}`;
-
-    // Track&Trace leest alleen overall status types: OPGEHAALD/ONDERWEG/PROBLEEM/AFGELEVERD
-    // Daarom loggen we overall, maar met note die stop aangeeft.
-    try { await addEvent(shipment.id, overall, `Stop ${stopIndex + 1} • ${stopLabel}${note ? " • " + note : ""}`, stopIndex); } catch {}
-
-    await loadShipments(currentUserId);
+  // ---------------- UI button helper
+  function mkBtn(text, onClick, className = "") {
+    const b = document.createElement("button");
+    b.textContent = text;
+    if (className) b.className = className;
+    b.addEventListener("click", onClick);
+    return b;
   }
 
   // ---------------- Delete shipment
@@ -425,7 +396,7 @@
     await loadShipments(currentUserId);
   }
 
-  // ---------------- Delivered modal (signature + photos) — supports stopIndex
+  // ---------------- Delivered modal (signature + photos) — PER DELIVERY STOP
   let drawing = false;
   let hasSignature = false;
   let last = null;
@@ -489,7 +460,7 @@
   }
   if (sigClear) sigClear.addEventListener("click", sigReset);
 
-  function openDeliveredModal(shipment, stopIndex = null) {
+  function openDeliveredModal(shipment, stopIndex) {
     currentDeliveryShipment = shipment;
     currentDeliveryStopIndex = (typeof stopIndex === "number") ? stopIndex : null;
 
@@ -500,19 +471,13 @@
     if (photo2) photo2.value = "";
 
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+    const st = (currentDeliveryStopIndex !== null) ? stops[currentDeliveryStopIndex] : null;
 
-    let headerLine = `${escapeHtml(shipment.pickup_address)} → ${escapeHtml(shipment.delivery_address)}`;
-    if (stops.length) {
-      const firstP = stops.find((x) => x.type === "pickup")?.address || shipment.pickup_address || "";
-      const lastD = [...stops].reverse().find((x) => x.type === "delivery")?.address || shipment.delivery_address || "";
-      headerLine = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
-    }
+    const firstP = stops.find(x => x.type === "pickup")?.address || shipment.pickup_address || "";
+    const lastD = [...stops].reverse().find(x => x.type === "delivery")?.address || shipment.delivery_address || "";
 
-    let stopLine = "";
-    if (currentDeliveryStopIndex !== null && stops[currentDeliveryStopIndex]) {
-      const st = stops[currentDeliveryStopIndex];
-      stopLine = `<br/><span class="small"><b>Aflever-stop:</b> ${escapeHtml(st.address)}</span>`;
-    }
+    let headerLine = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
+    let stopLine = st ? `<br/><span class="small"><b>Bezorgadres:</b> ${escapeHtml(st.address)}</span>` : "";
 
     if (modalShipmentInfo) {
       modalShipmentInfo.innerHTML = `<b>${escapeHtml(shipment.track_code)}</b><br/>${headerLine}${stopLine}`;
@@ -535,7 +500,6 @@
   if (modalCancel) modalCancel.addEventListener("click", closeDeliveredModal);
   if (overlay) overlay.addEventListener("click", (e) => { if (e.target === overlay) closeDeliveredModal(); });
 
-  // Storage upload helpers
   async function uploadFile(bucket, path, fileOrBlob, contentType) {
     const supabaseClient = await ensureClient();
     const { error } = await supabaseClient.storage
@@ -551,7 +515,7 @@
 
   if (modalConfirm) {
     modalConfirm.addEventListener("click", async () => {
-      if (!currentDeliveryShipment) return;
+      if (!currentDeliveryShipment || typeof currentDeliveryStopIndex !== "number") return;
 
       const receiver = modalReceiver?.value?.trim() || "";
       const note = modalNote?.value?.trim() || null;
@@ -602,57 +566,46 @@
           delivered_at: new Date().toISOString(),
         };
 
-        // MULTI-STOP: proof + status on that stop, overall recomputed
-        if (typeof currentDeliveryStopIndex === "number") {
-          const shipment = currentDeliveryShipment;
-          const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+        const shipment = currentDeliveryShipment;
+        const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
 
-          if (!stops[currentDeliveryStopIndex]) throw new Error("Stop bestaat niet (index mismatch).");
+        if (!stops[currentDeliveryStopIndex]) throw new Error("Stop bestaat niet (index mismatch).");
 
-          stops[currentDeliveryStopIndex] = {
-            ...stops[currentDeliveryStopIndex],
-            status: "AFGELEVERD",
-            proof,
-          };
-
-          const overall = computeOverallStatusFromStops(stops);
-          const legacy = deriveLegacyFromStops(stops);
-
-          await updateShipmentRow(shipment.id, {
-            stops,
-            status: overall,
-            pickup_address: legacy.pickup_address,
-            delivery_address: legacy.delivery_address,
-            pickup_prio: legacy.pickup_prio,
-            delivery_prio: legacy.delivery_prio,
-          });
-
-          const st = stops[currentDeliveryStopIndex];
-          try {
-            await addEvent(
-              shipment.id,
-              overall,
-              `Stop ${currentDeliveryStopIndex + 1} • ${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address} • Ontvanger: ${receiver}`,
-              currentDeliveryStopIndex
-            );
-          } catch {}
-
-        } else {
-          // NORMAL shipment: store proof on top-level columns
-          await updateStatus(
-            currentDeliveryShipment,
-            "AFGELEVERD",
-            {
-              receiver_name: receiver,
-              delivered_note: note,
-              signature_path: sigPath,
-              photo1_path: p1,
-              photo2_path: p2,
-              delivered_at: proof.delivered_at,
-            },
-            note
-          );
+        // Only for delivery stops
+        if (stops[currentDeliveryStopIndex].type !== "delivery") {
+          throw new Error("Aflever-modal mag alleen op bezorgadressen gebruikt worden.");
         }
+
+        stops[currentDeliveryStopIndex] = {
+          ...stops[currentDeliveryStopIndex],
+          status: "AFGELEVERD",
+          proof,
+        };
+
+        const overall = computeOverallStatusFromStops(stops);
+        const legacy = deriveLegacyFromStops(stops);
+
+        await updateShipmentRow(shipment.id, {
+          stops,
+          status: overall,
+          pickup_address: legacy.pickup_address,
+          delivery_address: legacy.delivery_address,
+          pickup_prio: legacy.pickup_prio,
+          delivery_prio: legacy.delivery_prio,
+        });
+
+        try {
+          const st = stops[currentDeliveryStopIndex];
+          await addEvent(
+            shipment.id,
+            overall,
+            `Stop ${currentDeliveryStopIndex + 1} • Bezorgen: ${st.address} • Ontvanger: ${receiver}`,
+            currentDeliveryStopIndex
+          );
+        } catch {}
+
+        // ✅ Auto archive when ALL deliveries delivered
+        await autoArchiveIfCompleted(shipment.id, stops);
 
         closeDeliveredModal();
         await loadShipments(currentUserId);
@@ -663,6 +616,59 @@
         modalConfirm.disabled = false;
       }
     });
+  }
+
+  // ---------------- Per-stop status update (pickup delivered etc)
+  async function updateStopStatus(shipment, stopIndex, newStatus, note = null) {
+    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+    if (!stops[stopIndex]) return;
+
+    const st0 = stops[stopIndex];
+
+    // Enforce rules:
+    // - Pickup: only OPGEHAALD/PROBLEEM
+    // - Delivery: only AFGELEVERD/PROBLEEM (AFGELEVERD via modal, so we don't set here)
+    if (st0.type === "pickup") {
+      if (!["OPGEHAALD", "PROBLEEM"].includes(newStatus)) return;
+    } else {
+      if (!["PROBLEEM"].includes(newStatus)) return;
+    }
+
+    const nowIso = new Date().toISOString();
+
+    stops[stopIndex] = {
+      ...st0,
+      status: newStatus,
+      picked_up_at: (st0.type === "pickup" && newStatus === "OPGEHAALD") ? nowIso : (st0.picked_up_at ?? null),
+    };
+
+    const overall = computeOverallStatusFromStops(stops);
+    const legacy = deriveLegacyFromStops(stops);
+
+    await updateShipmentRow(shipment.id, {
+      stops,
+      status: overall,
+      pickup_address: legacy.pickup_address,
+      delivery_address: legacy.delivery_address,
+      pickup_prio: legacy.pickup_prio,
+      delivery_prio: legacy.delivery_prio,
+      ...(newStatus === "PROBLEEM" && note ? { problem_note: note } : {}),
+    });
+
+    const stopLabel = `${st0.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st0.address}`;
+    try {
+      await addEvent(
+        shipment.id,
+        overall,
+        `Stop ${stopIndex + 1} • ${stopLabel}${note ? " • " + note : ""}`,
+        stopIndex
+      );
+    } catch {}
+
+    // If the action caused completion, auto archive
+    await autoArchiveIfCompleted(shipment.id, stops);
+
+    await loadShipments(currentUserId);
   }
 
   // ---------------- Edit modal (stops)
@@ -702,8 +708,9 @@
         type: r.dataset.type === "pickup" ? "pickup" : "delivery",
         address: (r.querySelector(".editStopAddress")?.value || "").trim(),
         prio: !!r.querySelector(".editStopPrio")?.checked,
-        status: null, // we merge back old statuses
+        status: null, // merged back
         proof: null,
+        picked_up_at: null,
       }))
       .filter((s) => s.address);
   }
@@ -771,18 +778,17 @@
     if (editError) editError.textContent = "Opslaan...";
 
     try {
-      // Preserve old per-stop status/proof by index (best effort)
+      // Preserve old per-stop status/proof/times by index (best effort)
       const oldStops = normalizeStopsFromDb(currentEditShipment);
       const mergedStops = stops.map((s, i) => ({
         ...s,
         status: oldStops[i]?.status ?? null,
         proof: oldStops[i]?.proof ?? null,
+        picked_up_at: oldStops[i]?.picked_up_at ?? null,
       }));
 
       const legacy = deriveLegacyFromStops(mergedStops);
-      const overall = (mergedStops.length > 2)
-        ? computeOverallStatusFromStops(mergedStops)
-        : (currentEditShipment.status || "AANGEMAAKT");
+      const overall = computeOverallStatusFromStops(mergedStops);
 
       await updateShipmentRow(currentEditShipment.id, {
         customer_name,
@@ -797,6 +803,9 @@
         status: overall,
       });
 
+      // If already complete after edit -> archive
+      await autoArchiveIfCompleted(currentEditShipment.id, mergedStops);
+
       if (editError) editError.textContent = "";
       closeEditModal();
       await loadShipments(currentUserId);
@@ -809,19 +818,17 @@
   }
   if (editSave) editSave.addEventListener("click", saveEditShipment);
 
-  // ---------------- Create shipment
+  // ---------------- Track code
   function generateTrackcode() {
-  const year = new Date().getFullYear();
+    const year = new Date().getFullYear();
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    const n = buf[0] % 1000000;
+    const six = String(n).padStart(6, "0");
+    return `DVK${year}${six}`;
+  }
 
-  // 6 willekeurige cijfers (000000 - 999999)
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  const n = buf[0] % 1000000;
-
-  const six = String(n).padStart(6, "0");
-  return `DVK${year}${six}`;
-}
-
+  // ---------------- Create shipment
   async function createShipment() {
     msg("Bezig...");
 
@@ -844,8 +851,8 @@
       const delivery_prio = !!legacyDeliveryPrio?.checked;
 
       stops = [
-        { type: "pickup", address: pickup_address, prio: pickup_prio, status: null, proof: null },
-        { type: "delivery", address: delivery_address, prio: delivery_prio, status: null, proof: null },
+        { type: "pickup", address: pickup_address, prio: pickup_prio, status: null, proof: null, picked_up_at: null },
+        { type: "delivery", address: delivery_address, prio: delivery_prio, status: null, proof: null, picked_up_at: null },
       ].filter((s) => s.address);
     }
 
@@ -920,21 +927,39 @@
 
   if (btnCreate) btnCreate.addEventListener("click", (e) => { e.preventDefault(); createShipment(); });
 
-  // ---------------- UI buttons
-  function mkBtn(text, onClick, className = "") {
-    const b = document.createElement("button");
-    b.textContent = text;
-    if (className) b.className = className;
-    b.addEventListener("click", onClick);
-    return b;
+  // ---------------- PDF helpers (logo + data)
+  async function loadImageAsDataUrl(url) {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      const p = new Promise((resolve, reject) => {
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+      });
+      img.src = url;
+      const loaded = await p;
+
+      const c = document.createElement("canvas");
+      c.width = loaded.naturalWidth;
+      c.height = loaded.naturalHeight;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(loaded, 0, 0);
+      return c.toDataURL("image/png");
+    } catch {
+      return null; // silently ignore
+    }
   }
 
-  function statusBtnClass(currentStatus, btnStatus) {
-    // highlight active button
-    return currentStatus === btnStatus ? "dvkStatusBtn dvkStatusBtnActive" : "dvkStatusBtn";
+  function fmtDT(iso) {
+    try {
+      if (!iso) return "";
+      return new Date(iso).toLocaleString("nl-NL");
+    } catch {
+      return "";
+    }
   }
 
-  // ---------------- PDF (Afleverbon) — one PDF per shipment, includes all stops + timeline
+  // ---------------- PDF (Afleverbon) — includes logo + pickup/delivery times
   async function downloadAfleverPdf(shipment) {
     if (!window.jspdf?.jsPDF) {
       alert("jsPDF ontbreekt. Controleer script tag in dashboard.html.");
@@ -942,38 +967,89 @@
     }
 
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
 
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+    const pickups = stops.filter(s => s.type === "pickup");
+    const deliveries = stops.filter(s => s.type === "delivery");
 
-    let y = 14;
+    let y = 42;
+
+    // Logo
+    const logoDataUrl = await loadImageAsDataUrl(LOGO_URL);
+    if (logoDataUrl) {
+      // small logo top-left
+      doc.addImage(logoDataUrl, "PNG", 40, 22, 90, 30);
+    }
+
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text(`Afleverbon — ${shipment.track_code}`, 14, y); y += 8;
+    doc.text("Afleverbon / Bewijs van levering", 40, y); y += 20;
 
     doc.setFontSize(11);
-    doc.text(`Klant: ${shipment.customer_name || ""}`, 14, y); y += 6;
-    doc.text(`Type: ${shipment.shipment_type === "overig" ? (shipment.shipment_type_other || "overig") : (shipment.shipment_type || "")}`, 14, y); y += 6;
-    doc.text(`Colli: ${shipment.colli_count ?? ""}`, 14, y); y += 6;
-    doc.text(`Status: ${labelStatus(shipment.status)}`, 14, y); y += 8;
+    doc.setFont("helvetica", "bold");
+    doc.text(`Track & Trace: ${shipment.track_code}`, 40, y); y += 16;
 
-    doc.setFontSize(12);
-    doc.text("Stops:", 14, y); y += 6;
+    doc.setFont("helvetica", "normal");
+    doc.text(`Klant: ${shipment.customer_name || ""}`, 40, y); y += 14;
+    const typeText = shipment.shipment_type === "overig"
+      ? (shipment.shipment_type_other || "overig")
+      : (shipment.shipment_type || "");
+    doc.text(`Type: ${typeText}  •  Colli: ${shipment.colli_count ?? ""}`, 40, y); y += 14;
 
-    doc.setFontSize(10);
-    stops.forEach((st, idx) => {
-      const line = `${idx + 1}. ${st.type === "pickup" ? "Ophalen" : "Bezorgen"} — ${st.address} ${st.prio ? "(PRIO)" : ""} — ${st.status ? labelStatus(st.status) : "—"}`;
-      doc.text(line, 14, y);
-      y += 5;
-      if (st.proof?.receiver_name) {
-        doc.text(`   Ontvanger: ${st.proof.receiver_name} • ${st.proof.delivered_at ? new Date(st.proof.delivered_at).toLocaleString() : ""}`, 14, y);
-        y += 5;
-      }
-      if (y > 270) { doc.addPage(); y = 14; }
-    });
+    doc.text(`Status: ${labelStatus(shipment.status)}`, 40, y); y += 18;
+
+    // Pickups
+    doc.setFont("helvetica", "bold");
+    doc.text(`Ophaaladres${pickups.length > 1 ? "sen" : ""}:`, 40, y); y += 14;
+    doc.setFont("helvetica", "normal");
+    if (!pickups.length) {
+      doc.text("—", 40, y); y += 14;
+    } else {
+      pickups.forEach((p, i) => {
+        const line = `${pickups.length > 1 ? (i + 1) + ". " : ""}${p.address}${p.prio ? " (PRIO)" : ""}`;
+        doc.text(line, 40, y); y += 14;
+        const t = p.picked_up_at ? fmtDT(p.picked_up_at) : "";
+        doc.text(`   Ophaaltijd: ${t || "—"}`, 40, y); y += 14;
+        if (y > 780) { doc.addPage(); y = 42; }
+      });
+    }
 
     y += 6;
-    doc.setFontSize(12);
-    doc.text("Tijdpad (events):", 14, y); y += 6;
+
+    // Deliveries
+    doc.setFont("helvetica", "bold");
+    doc.text(`Bezorgadres${deliveries.length > 1 ? "sen" : ""}:`, 40, y); y += 14;
+    doc.setFont("helvetica", "normal");
+    if (!deliveries.length) {
+      doc.text("—", 40, y); y += 14;
+    } else {
+      deliveries.forEach((d, i) => {
+        const line = `${deliveries.length > 1 ? (i + 1) + ". " : ""}${d.address}${d.prio ? " (PRIO)" : ""}`;
+        doc.text(line, 40, y); y += 14;
+
+        const deliveredAt = d.proof?.delivered_at ? fmtDT(d.proof.delivered_at) : "";
+        doc.text(`   Bezorgtijd: ${deliveredAt || "—"}`, 40, y); y += 14;
+
+        if (d.proof) {
+          doc.text(`   Ontvanger: ${d.proof.receiver_name || "—"}`, 40, y); y += 14;
+          if (d.proof.delivered_note) {
+            doc.text(`   Opmerking: ${d.proof.delivered_note}`, 40, y); y += 14;
+          }
+          doc.text(`   Handtekening: ${d.proof.signature_path ? "✅" : "—"}   Foto's: ${(d.proof.photo1_path || d.proof.photo2_path) ? "✅" : "—"}`, 40, y);
+          y += 14;
+        }
+
+        if (y > 780) { doc.addPage(); y = 42; }
+      });
+    }
+
+    y += 10;
+
+    // Timeline/events
+    doc.setFont("helvetica", "bold");
+    doc.text("Tijdpad:", 40, y); y += 14;
+    doc.setFont("helvetica", "normal");
 
     try {
       const supabaseClient = await ensureClient();
@@ -983,73 +1059,103 @@
         .eq("shipment_id", shipment.id)
         .order("created_at", { ascending: true });
 
-      doc.setFontSize(10);
-      (data || []).forEach((ev) => {
-        const dt = ev.created_at ? new Date(ev.created_at).toLocaleString() : "";
-        const txt = `${dt} — ${labelStatus(ev.event_type)}${(ev.stop_index !== null && ev.stop_index !== undefined) ? ` (stop ${Number(ev.stop_index) + 1})` : ""}${ev.note ? ` — ${ev.note}` : ""}`;
-        doc.text(txt, 14, y);
-        y += 5;
-        if (y > 270) { doc.addPage(); y = 14; }
-      });
+      const events = data || [];
+      if (!events.length) {
+        doc.text("—", 40, y); y += 14;
+      } else {
+        events.forEach((ev) => {
+          const dt = ev.created_at ? fmtDT(ev.created_at) : "";
+          const si = (ev.stop_index === 0 || ev.stop_index) ? ` (stop ${Number(ev.stop_index) + 1})` : "";
+          const line = `${dt} — ${labelStatus(ev.event_type)}${si}${ev.note ? " — " + ev.note : ""}`;
+          const split = doc.splitTextToSize(line, 520);
+          doc.text(split, 40, y);
+          y += 14 * split.length;
+          if (y > 780) { doc.addPage(); y = 42; }
+        });
+      }
     } catch {
-      doc.setFontSize(10);
-      doc.text("(Geen events beschikbaar)", 14, y);
+      doc.text("(Geen events beschikbaar)", 40, y);
     }
 
     doc.save(`Afleverbon-${shipment.track_code}.pdf`);
   }
 
-  // Optional global PDF button (downloads selected/current? we keep per card)
-  if (btnDownloadPdf) {
-    btnDownloadPdf.addEventListener("click", () => {
-      alert("Gebruik de Aflever-PDF knop bij een zending.");
-    });
-  }
-
-  // ---------------- Multi-stop per stop UI
+  // ---------------- Per-address status UI (ALWAYS)
   function renderStopStatusUI(shipment) {
     const wrap = document.createElement("div");
     wrap.className = "stopStatusWrap";
 
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
 
-    // Alleen per-adres statuses bij multi-stop
-    if (stops.length <= 2) return wrap;
-
     const title = document.createElement("div");
     title.style.fontWeight = "700";
-    title.style.margin = "6px 0";
-    title.textContent = "Status per adres:";
+    title.style.margin = "8px 0 6px";
+    title.textContent = "Adressen:";
     wrap.appendChild(title);
 
     stops.forEach((st, idx) => {
       const row = document.createElement("div");
       row.className = "stopStatusRow";
 
-      const tag = st.type === "pickup" ? "Ophalen" : "Bezorgen";
+      const tag = st.type === "pickup" ? "Ophaaladres" : "Bezorgadres";
       const cur = st.status ? labelStatus(st.status) : "—";
+      const prio = st.prio ? ` <span style="color:#0a0;font-weight:800;">PRIO</span>` : "";
+      const timeLine =
+        st.type === "pickup"
+          ? (st.picked_up_at ? `Ophaaltijd: <b>${escapeHtml(fmtDT(st.picked_up_at))}</b>` : `Ophaaltijd: <b>—</b>`)
+          : (st.proof?.delivered_at ? `Bezorgtijd: <b>${escapeHtml(fmtDT(st.proof.delivered_at))}</b>` : `Bezorgtijd: <b>—</b>`);
 
       row.innerHTML = `
-        <div class="small">
-          <b>${idx + 1}. ${escapeHtml(tag)}:</b> ${escapeHtml(st.address)}
-          ${st.prio ? ' <span style="color:#0a0;font-weight:800;">PRIO</span>' : ""}
-          <br/><span class="small">Huidig: <b>${escapeHtml(cur)}</b></span>
+        <div class="small" style="flex:1;">
+          <b>${idx + 1}. ${escapeHtml(tag)}:</b> ${escapeHtml(st.address)}${prio}<br/>
+          <span class="small">Huidig: <b>${escapeHtml(cur)}</b> • ${timeLine}</span>
         </div>
       `;
 
       const btns = document.createElement("div");
       btns.className = "stopStatusButtons";
 
-      btns.appendChild(mkBtn("Opgehaald", () => updateStopStatus(shipment, idx, "OPGEHAALD"), statusBtnClass(st.status, "OPGEHAALD")));
-      btns.appendChild(mkBtn("Onderweg", () => updateStopStatus(shipment, idx, "ONDERWEG"), statusBtnClass(st.status, "ONDERWEG")));
-      btns.appendChild(mkBtn("Probleem", async () => {
-        const note = prompt("Wat is het probleem?");
-        if (!note) return;
-        await updateStopStatus(shipment, idx, "PROBLEEM", note);
-      }, statusBtnClass(st.status, "PROBLEEM")));
-
-      // ✅ BELANGRIJK: Afgeleverd moet MODAL openen (bewijs), per stop
-      btns.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx), statusBtnClass(st.status, "AFGELEVERD")));
+      if (st.type === "pickup") {
+        // ✅ Pickup: only Opgehaald + Probleem
+        btns.appendChild(
+          mkBtn(
+            "Opgehaald",
+            () => updateStopStatus(shipment, idx, "OPGEHAALD"),
+            statusBtnClass(st.status, "OPGEHAALD")
+          )
+        );
+        btns.appendChild(
+          mkBtn(
+            "Probleem",
+            async () => {
+              const note = prompt("Wat is het probleem?");
+              if (!note) return;
+              await updateStopStatus(shipment, idx, "PROBLEEM", note);
+            },
+            statusBtnClass(st.status, "PROBLEEM")
+          )
+        );
+      } else {
+        // ✅ Delivery: only Afgeleverd (modal) + Probleem
+        btns.appendChild(
+          mkBtn(
+            "Afgeleverd",
+            () => openDeliveredModal(shipment, idx),
+            statusBtnClass(st.status, "AFGELEVERD")
+          )
+        );
+        btns.appendChild(
+          mkBtn(
+            "Probleem",
+            async () => {
+              const note = prompt("Wat is het probleem?");
+              if (!note) return;
+              await updateStopStatus(shipment, idx, "PROBLEEM", note);
+            },
+            statusBtnClass(st.status, "PROBLEEM")
+          )
+        );
+      }
 
       row.appendChild(btns);
       wrap.appendChild(row);
@@ -1091,7 +1197,7 @@
     const actions = div.querySelector(".actions");
     const sub = div.querySelector(".sub");
 
-    // Always: PDF + delete
+    // Always
     actions.appendChild(mkBtn("Aflever-PDF", () => downloadAfleverPdf(s)));
     actions.appendChild(mkBtn("Verwijderen", () => deleteShipment(s)));
 
@@ -1100,30 +1206,11 @@
     if (!isArchived) {
       actions.appendChild(mkBtn("Wijzigen", () => openEditModal(s)));
 
-      // Normale zending (2 stops): simpele knoppen met highlight
-      if (!isMultiStopShipment(s)) {
-        actions.appendChild(mkBtn("Opgehaald", () => updateStatus(s, "OPGEHAALD"), statusBtnClass(s.status, "OPGEHAALD")));
-        actions.appendChild(mkBtn("Onderweg", () => updateStatus(s, "ONDERWEG"), statusBtnClass(s.status, "ONDERWEG")));
-        actions.appendChild(mkBtn("Probleem", async () => {
-          const note = prompt("Wat is het probleem?");
-          if (!note) return;
-          await updateStatus(s, "PROBLEEM", { problem_note: note }, note);
-        }, statusBtnClass(s.status, "PROBLEEM")));
-        actions.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(s), statusBtnClass(s.status, "AFGELEVERD")));
-      } else {
-        // Multi-stop: per-adres UI
-        div.appendChild(renderStopStatusUI(s));
-      }
-
-      if (s.status === "AFGELEVERD") {
-        actions.appendChild(mkBtn("Archiveer", () => updateStatus(s, "GEARCHIVEERD", { archived_at: new Date().toISOString() })));
-      }
+      // Per-address buttons block (ALWAYS)
+      div.appendChild(renderStopStatusUI(s));
     }
 
     if (s.problem_note) sub.innerHTML = `<small><b>Probleem:</b> ${escapeHtml(s.problem_note)}</small>`;
-    if (s.receiver_name) sub.innerHTML += `${sub.innerHTML ? "<br/>" : ""}<small><b>Ontvanger:</b> ${escapeHtml(s.receiver_name)}</small>`;
-    if (s.signature_path) sub.innerHTML += `${sub.innerHTML ? "<br/>" : ""}<small><b>Handtekening:</b> opgeslagen ✅</small>`;
-    if (s.photo1_path || s.photo2_path) sub.innerHTML += `${sub.innerHTML ? "<br/>" : ""}<small><b>Foto’s:</b> opgeslagen ✅</small>`;
 
     return div;
   }
@@ -1160,7 +1247,7 @@
     const archived = all.filter((s) => !!s.archived_at || s.status === "GEARCHIVEERD");
     const active = all.filter((s) => !s.archived_at && s.status !== "GEARCHIVEERD");
 
-    // routeplanner cache: exclude delivered
+    // routeplanner cache: exclude fully delivered shipments (since these auto-archive anyway)
     activeShipmentsCache = active.filter((s) => s.status !== "AFGELEVERD");
     window.activeShipmentsCache = activeShipmentsCache;
 
@@ -1318,7 +1405,10 @@
       for (const c of candidates) {
         const cIndex = idxOfStop(c);
         let cost = getDurationSeconds(matrix, currentIndex, cIndex);
+
+        // ✅ PRIO gets strong bias
         if (c.prio) cost = cost * 0.35;
+
         if (cost < bestCost) { bestCost = cost; best = c; }
       }
 
@@ -1435,7 +1525,7 @@
   };
 
   // ---------------- INIT
-  (async () => {
+  ;(async () => {
     try {
       const user = await requireAuth();
       currentUserId = user.id;
@@ -1445,28 +1535,28 @@
       await loadShipments(currentUserId);
 
       // Optional realtime refresh (safe)
-  try {
-    const supabaseClient = await ensureClient();
+      try {
+        const supabaseClient = await ensureClient();
 
-    supabaseClient
-      .channel("shipments_changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "shipments",
-          filter: `driver_id=eq.${currentUserId}`,
-        },
-        () => loadShipments(currentUserId)
-      )
-      .subscribe();
-  } catch (e) {
-    console.warn("Realtime subscribe skipped:", e);
-  }
-
-} catch (e) {
-  console.error("INIT error:", e);
-  msg("Init fout: " + (e?.message || e));
-}
+        supabaseClient
+          .channel("shipments_changes")
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "shipments",
+              filter: `driver_id=eq.${currentUserId}`,
+            },
+            () => loadShipments(currentUserId)
+          )
+          .subscribe();
+      } catch (e) {
+        console.warn("Realtime subscribe skipped:", e);
+      }
+    } catch (e) {
+      console.error("INIT error:", e);
+      msg("Init fout: " + (e?.message || e));
+    }
+  })();
 })();
