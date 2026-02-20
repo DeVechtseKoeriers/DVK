@@ -1466,5 +1466,3 @@
       msg("Init fout: " + (e?.message || e));
     }
   })();
-
-})();
