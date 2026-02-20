@@ -165,7 +165,7 @@ if (!timelineHtml) {
   timelineHtml = stopEvents || '<li class="muted">Nog geen tijdpad.</li>';
 }
 
-sCard.innerHTML = `
+eventsCard.innerHTML = 
   <div style="font-weight:800;">Tijdpad</div>
   <ul style="margin:8px 0 0 18px;">
     ${timelineHtml}
