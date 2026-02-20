@@ -95,13 +95,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const stops = normalizeStops(sh);
-
-    // Events
-    const { data: events } = await supabaseClient
-      .from("shipment_events")
-      .select("event_type, note, stop_index, created_at")
-      .eq("shipment_id", sh.id)
-      .order("created_at", { ascending: true });
+    const events = [];
 
     // Render shipment
     subLine.textContent = `Code: ${code} • Status: ${labelStatus(sh.status)}`;
