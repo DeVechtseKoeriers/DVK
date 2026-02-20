@@ -811,13 +811,15 @@
 
   // ---------------- Create shipment
   function generateTrackcode() {
-    function generateTrackcode() {
   const year = new Date().getFullYear();
-  const random6 = Math.floor(Math.random() * 1000000)
-    .toString()
-    .padStart(6, "0");
 
-  return `DVK${year}${random6}`;
+  // 6 willekeurige cijfers (000000 - 999999)
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  const n = buf[0] % 1000000;
+
+  const six = String(n).padStart(6, "0");
+  return `DVK${year}${six}`;
 }
 
   async function createShipment() {
