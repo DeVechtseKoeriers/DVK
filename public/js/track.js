@@ -172,17 +172,40 @@ sCard.innerHTML = `
   </ul>
 `;
 
-    // Render events (tijdpad)
-    const evHtml = (events || []).map(e => {
-      const t = e.created_at ? new Date(e.created_at).toLocaleString() : "";
-      const si = (e.stop_index === 0 || e.stop_index) ? ` (stop ${Number(e.stop_index) + 1})` : "";
-      return `<li><b>${esc(labelStatus(e.event_type))}</b>${esc(si)} — ${esc(t)}${e.note ? ` • ${esc(e.note)}` : ""}</li>`;
-    }).join("");
+    // ===== Tijdpad (altijd tonen) =====
+const stopsSafe  = Array.isArray(stops)  ? stops  : [];
+const eventsSafe = Array.isArray(events) ? events : [];
 
-    eventsCard.innerHTML = `
-      <div style="font-weight:800;">Tijdpad</div>
-      <ul>${evHtml || `<li class="muted">Geen events.</li>`}</ul>
-    `;
+let timelineItems = "";
+
+// 1) Als er echte events zijn
+if (eventsSafe.length) {
+  timelineItems = eventsSafe.map(ev => {
+    const t = ev.created_at ? new Date(ev.created_at).toLocaleString("nl-NL") : "";
+    const msg = ev.event_type || ev.status || "Event";
+    return `<li>${t ? `<strong>${t}</strong> — ` : ""}${esc(msg)}</li>`;
+  }).join("");
+}
+
+// 2) Anders fallback uit stops
+if (!timelineItems) {
+  timelineItems = stopsSafe.map((st, i) => {
+    const type = st?.type === "pickup" ? "Ophalen" : "Bezorgen";
+    const addr = st?.address || "-";
+    const stt  = st?.status || "Onbekend";
+    return `<li>${i + 1}. ${type}: ${esc(addr)} — <strong>${esc(stt)}</strong></li>`;
+  }).join("");
+}
+
+// 3) Als zelfs dat leeg is
+if (!timelineItems) timelineItems = `<li class="muted">Nog geen tijdpad.</li>`;
+
+eventsCard.innerHTML = `
+  <div style="font-weight:800;">Tijdpad</div>
+  <ul style="margin:8px 0 0 18px;">
+    ${timelineItems}
+  </ul>
+`;
 
     // PDF knop
     btnPdf.onclick = () => makePdf(sh, stops, events || []);
