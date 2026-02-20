@@ -153,7 +153,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }).join("");
 
     // Als er geen events zijn, bouw tijdpad op uit stops
-let timelineHtml = evHtml;
+let timelineHtml = "";
 
 if (!timelineHtml) {
   const stopEvents = (stops || []).map((st, i) => {
