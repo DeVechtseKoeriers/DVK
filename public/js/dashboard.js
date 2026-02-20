@@ -987,12 +987,17 @@ btns.appendChild(mkBtn("Onderweg", () => updateStopStatus(shipment, idx, "ONDERW
 btns.appendChild(mkBtn("Probleem", async () => {
   const note = prompt("Wat is het probleem?");
   if (!note) return;
-  await updateStopStatus(shipment, idx, "PROBLEEM", note);
-  try { await updateShipmentRow(shipment.id, { problem_note: note, status: "PROBLEEM" }); } catch {}
+
+  await updateStopStatus(shipment, idx, "PROBLEEM");
+
+  try {
+    await updateShipmentRow(shipment.id, { problem_note: note, status: "PROBLEEM" });
+  } catch (e) {
+    console.warn("problem_note update failed:", e);
+  }
+
   await loadShipments(currentUserId);
-}, `statusBtn ${st.status==="PROBLEEM" ? "isActive" : ""}`));
-btns.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx), `statusBtn ${st.status==="AFGELEVERD" ? "isActive" : ""}`));
-      }));
+}));
 
       // ✅ IMPORTANT: multi-stop delivered MUST open modal
       btns.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx)));
@@ -1348,37 +1353,56 @@ btns.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx), `s
     }
   };
 
-  // ---------------- INIT
-  (async () => {
-    try {
-      const user = await requireAuth();
-      currentUserId = user.id;
+ // ---------------- INIT (SCHOON & 1x)
+(async () => {
+  try {
+    const user = await requireAuth();
+    currentUserId = user.id;
 
+    // Default stops UI (als aanwezig)
+    if (typeof ensureDefaultStops === "function") {
       ensureDefaultStops();
-      setTab("active");
-      await loadShipments(currentUserId);
-
-      // Realtime refresh (safe)
-      try {
-        const supabaseClient = await ensureClient();
-        supabaseClient
-          .channel("shipments_changes")
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "shipments",
-              filter: `driver_id=eq.${currentUserId}`,
-            },
-            () => loadShipments(currentUserId)
-          )
-          .subscribe();
-      } catch (e) {
-        console.warn("Realtime subscribe skipped:", e);
-      }
-    } catch (e) {
-      console.error("INIT error:", e);
     }
-  })();
+
+    setTab("active");
+    await loadShipments(currentUserId);
+
+    // Optional realtime refresh (veilig)
+    try {
+      const supabaseClient = await ensureClient();
+      supabaseClient
+        .channel("shipments_changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "shipments",
+            filter: `driver_id=eq.${currentUserId}`,
+          },
+          () => loadShipments(currentUserId)
+        )
+        .subscribe();
+    } catch (e) {
+      console.warn("Realtime subscribe skipped:", e);
+    }
+  } catch (e) {
+    console.error("INIT error:", e);
+    msg("Init fout: " + (e?.message || e));
+  }
 })();
+
+// ---------------- Google Maps callback (MOET 1x bestaan)
+window.initMaps = function () {
+  try {
+    console.log("Google Maps geladen");
+    window.__dvkMapsReady = true;
+
+    ensureMapInit();
+    initAutocomplete();
+
+    if (autoRouteEl?.checked) planOptimalRoute();
+  } catch (e) {
+    console.error("initMaps error:", e);
+  }
+};
