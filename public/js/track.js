@@ -98,7 +98,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const events = [];
 
     // Render shipment
-    subLine.textContent = `Code: ${code} • Status: ${labelStatus(sh.status)}`;
+    subLine.textContent = "";
 
     shipmentCard.innerHTML = `
       <div style="font-weight:800;font-size:16px;">${esc(sh.track_code)} — ${esc(sh.customer_name || "")}</div>
