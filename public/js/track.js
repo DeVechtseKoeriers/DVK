@@ -1,3 +1,20 @@
+document.addEventListener("DOMContentLoaded", () => {
+  const input = document.getElementById("codeInput");
+  const btn = document.getElementById("goBtn");
+
+  if (btn && input) {
+    btn.addEventListener("click", () => {
+      const v = input.value.trim();
+      if (!v) return;
+      location.href = `/DVK/track/?code=${encodeURIComponent(v)}`;
+    });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") btn.click();
+    });
+  }
+});
+
 (() => {
   const subLine = document.getElementById("subLine");
   const shipmentCard = document.getElementById("shipmentCard");
