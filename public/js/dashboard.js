@@ -1,22 +1,19 @@
-// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD (v2)
-// Implements requested changes:
+// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD (v3)
 // - Per-stop buttons:
 //   * Pickup stop: only "Opgehaald" + "Probleem"
-//   * Delivery stop: only "Afgeleverd" + "Probleem" (Afgeleverd opens proof modal per stop)
-// - Multiple addresses: buttons per address
+//   * Delivery stop: only "Afgeleverd" (opens proof modal) + "Probleem"
+// - Events written correctly per stop:
+//   * OPGEHAALD/AFGELEVERD/PROBLEEM with stop_index (created_at provides date/time for Track&Trace)
 // - Auto-archive when ALL deliveries are AFGELEVERD
-// - Archived tab: Aflever-PDF with logo + pickup/delivery addresses + times
-// - Active button highlights green
-// - PRIO checkbox per stop (already present) influences route planner priority
-// - Track & Trace link stays smooth and correct
+// - Aflever-PDF with logo + pickup/delivery times
+// - Business search in Places works (name + address)
 // - No duplicate initMaps, no parse errors
 
 (() => {
   "use strict";
 
   // ---------------- CONFIG
-  // Zet je logo hier neer (bijv. DVK/public/assets/logo.png)
-  const LOGO_URL = "/DVK/assets/logo.png"; // als niet gevonden -> PDF gaat door zonder logo
+  const LOGO_URL = "/DVK/assets/logo.png"; // zet je logo hier
   const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
 
   // ---------------- DOM
@@ -93,7 +90,7 @@
 
   // For proof modal
   let currentDeliveryShipment = null;
-  let currentDeliveryStopIndex = null; // delivery stop index for which we collect proof
+  let currentDeliveryStopIndex = null;
 
   let currentEditShipment = null;
 
@@ -109,6 +106,21 @@
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
+  }
+
+  function fmtDT(iso) {
+    try {
+      if (!iso) return "";
+      return new Date(iso).toLocaleString("nl-NL", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
   }
 
   function setTab(tab) {
@@ -142,7 +154,7 @@
           prio: !!(x.prio ?? x.priority ?? x.is_prio ?? x.is_priority),
           status: x.status ?? null,
           proof: x.proof ?? null,
-          picked_up_at: x.picked_up_at ?? null, // ✅ added for pickup time
+          picked_up_at: x.picked_up_at ?? null,
         }))
         .filter((s) => s.address);
     }
@@ -173,16 +185,11 @@
     const pickups = stops.filter((s) => s.type === "pickup");
     const deliveries = stops.filter((s) => s.type === "delivery");
 
-    const allPickupsDone = pickups.length
-      ? pickups.every((s) => s.status === "OPGEHAALD" || s.status === "AFGELEVERD")
-      : true;
-
-    const allDeliveriesDone = deliveries.length
-      ? deliveries.every((s) => s.status === "AFGELEVERD")
-      : false;
+    const allPickupsDone = pickups.length ? pickups.every((s) => s.status === "OPGEHAALD") : true;
+    const allDeliveriesDone = deliveries.length ? deliveries.every((s) => s.status === "AFGELEVERD") : false;
 
     if (allPickupsDone && allDeliveriesDone) return "AFGELEVERD";
-    if (stops.some((s) => s.status === "OPGEHAALD")) return "OPGEHAALD";
+    if (pickups.some((s) => s.status === "OPGEHAALD")) return "OPGEHAALD";
     return "AANGEMAAKT";
   }
 
@@ -198,7 +205,6 @@
     return map[st] || (st || "-");
   }
 
-  // Status button highlighting
   function statusBtnClass(currentStatus, btnStatus) {
     return currentStatus === btnStatus ? "dvkStatusBtn dvkStatusBtnActive" : "dvkStatusBtn";
   }
@@ -235,42 +241,39 @@
     });
   }
 
-  // ---------------- Google Places attach
+  // ---------------- Google Places attach (bedrijven + adressen)
   function attachPlacesToInput(inputEl) {
-  try {
-    if (!inputEl) return;
-    if (inputEl.dataset.placesAttached === "1") return;
-    if (!window.google || !google.maps || !google.maps.places) return;
+    try {
+      if (!inputEl) return;
+      if (inputEl.dataset.placesAttached === "1") return;
+      if (!window.google || !google.maps || !google.maps.places) return;
 
-    const ac = new google.maps.places.Autocomplete(inputEl, {
-      fields: ["formatted_address", "name", "place_id"],
-      // GEEN types filter -> dan krijg je adressen + bedrijven
-      // types: ["geocode"],
-    });
+      const ac = new google.maps.places.Autocomplete(inputEl, {
+        fields: ["formatted_address", "name", "place_id"],
+        // GEEN types filter -> bedrijven + adressen
+      });
 
-    ac.addListener("place_changed", () => {
-      const place = ac.getPlace();
-      // Als het een bedrijf is, gebruik name + formatted_address
-      if (place?.name && place?.formatted_address) {
-        inputEl.value = `${place.name}, ${place.formatted_address}`;
-      } else if (place?.formatted_address) {
-        inputEl.value = place.formatted_address;
-      } else if (place?.name) {
-        inputEl.value = place.name;
-      }
-    });
+      ac.addListener("place_changed", () => {
+        const place = ac.getPlace();
+        if (place?.name && place?.formatted_address) {
+          inputEl.value = `${place.name}, ${place.formatted_address}`;
+        } else if (place?.formatted_address) {
+          inputEl.value = place.formatted_address;
+        } else if (place?.name) {
+          inputEl.value = place.name;
+        }
+      });
 
-    inputEl.dataset.placesAttached = "1";
-  } catch (e) {
-    console.warn("Places attach failed:", e);
+      inputEl.dataset.placesAttached = "1";
+    } catch (e) {
+      console.warn("Places attach failed:", e);
+    }
   }
-}
 
   function initAutocomplete() {
     if (stopsWrap) stopsWrap.querySelectorAll("input.stopAddress").forEach(attachPlacesToInput);
     attachPlacesToInput(legacyPickupInput);
     attachPlacesToInput(legacyDeliveryInput);
-
     if (editStopsWrap) editStopsWrap.querySelectorAll("input.editStopAddress").forEach(attachPlacesToInput);
   }
 
@@ -373,6 +376,7 @@
 
     const nowIso = new Date().toISOString();
     await updateShipmentRow(shipmentId, { status: "GEARCHIVEERD", archived_at: nowIso });
+
     try { await addEvent(shipmentId, "GEARCHIVEERD", "Automatisch gearchiveerd (alles afgeleverd)"); } catch {}
   }
 
@@ -578,12 +582,9 @@
         const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
 
         if (!stops[currentDeliveryStopIndex]) throw new Error("Stop bestaat niet (index mismatch).");
+        if (stops[currentDeliveryStopIndex].type !== "delivery") throw new Error("Aflever-modal alleen voor bezorgadressen.");
 
-        // Only for delivery stops
-        if (stops[currentDeliveryStopIndex].type !== "delivery") {
-          throw new Error("Aflever-modal mag alleen op bezorgadressen gebruikt worden.");
-        }
-
+        // update stop
         stops[currentDeliveryStopIndex] = {
           ...stops[currentDeliveryStopIndex],
           status: "AFGELEVERD",
@@ -602,17 +603,17 @@
           delivery_prio: legacy.delivery_prio,
         });
 
+        // ✅ CORRECT EVENT: AFGELEVERD (not overall)
         try {
           const st = stops[currentDeliveryStopIndex];
           await addEvent(
             shipment.id,
-            overall,
-            `Stop ${currentDeliveryStopIndex + 1} • Bezorgen: ${st.address} • Ontvanger: ${receiver}`,
+            "AFGELEVERD",
+            `Bezorgd: ${st.address} • Ontvanger: ${receiver}${note ? " • " + note : ""}`,
             currentDeliveryStopIndex
           );
         } catch {}
 
-        // ✅ Auto archive when ALL deliveries delivered
         await autoArchiveIfCompleted(shipment.id, stops);
 
         closeDeliveredModal();
@@ -626,7 +627,7 @@
     });
   }
 
-  // ---------------- Per-stop status update (pickup delivered etc)
+  // ---------------- Per-stop status update (pickup + probleem)
   async function updateStopStatus(shipment, stopIndex, newStatus, note = null) {
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
     if (!stops[stopIndex]) return;
@@ -634,11 +635,10 @@
     const st0 = stops[stopIndex];
 
     // Enforce rules:
-    // - Pickup: only OPGEHAALD/PROBLEEM
-    // - Delivery: only AFGELEVERD/PROBLEEM (AFGELEVERD via modal, so we don't set here)
     if (st0.type === "pickup") {
       if (!["OPGEHAALD", "PROBLEEM"].includes(newStatus)) return;
     } else {
+      // delivery: AFGELEVERD goes via modal
       if (!["PROBLEEM"].includes(newStatus)) return;
     }
 
@@ -663,19 +663,19 @@
       ...(newStatus === "PROBLEEM" && note ? { problem_note: note } : {}),
     });
 
-    const stopLabel = `${st0.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st0.address}`;
+    // ✅ CORRECT EVENT: use newStatus (not overall)
     try {
+      const addr = st0.address;
+      const label = st0.type === "pickup" ? "Ophalen" : "Bezorgen";
       await addEvent(
         shipment.id,
-        overall,
-        `Stop ${stopIndex + 1} • ${stopLabel}${note ? " • " + note : ""}`,
+        newStatus,
+        `${label}: ${addr}${note ? " • " + note : ""}`,
         stopIndex
       );
     } catch {}
 
-    // If the action caused completion, auto archive
     await autoArchiveIfCompleted(shipment.id, stops);
-
     await loadShipments(currentUserId);
   }
 
@@ -716,7 +716,7 @@
         type: r.dataset.type === "pickup" ? "pickup" : "delivery",
         address: (r.querySelector(".editStopAddress")?.value || "").trim(),
         prio: !!r.querySelector(".editStopPrio")?.checked,
-        status: null, // merged back
+        status: null,
         proof: null,
         picked_up_at: null,
       }))
@@ -740,12 +740,7 @@
 
     if (editStopsWrap) editStopsWrap.innerHTML = "";
     const stops = normalizeStopsFromDb(shipment);
-    if (stops.length) {
-      stops.forEach((st) => addEditStopRow(st.type, st.address, st.prio));
-    } else {
-      addEditStopRow("pickup", shipment.pickup_address || "", false);
-      addEditStopRow("delivery", shipment.delivery_address || "", false);
-    }
+    stops.forEach((st) => addEditStopRow(st.type, st.address, st.prio));
 
     if (btnEditAddPickup) btnEditAddPickup.onclick = () => addEditStopRow("pickup");
     if (btnEditAddDelivery) btnEditAddDelivery.onclick = () => addEditStopRow("delivery");
@@ -786,7 +781,6 @@
     if (editError) editError.textContent = "Opslaan...";
 
     try {
-      // Preserve old per-stop status/proof/times by index (best effort)
       const oldStops = normalizeStopsFromDb(currentEditShipment);
       const mergedStops = stops.map((s, i) => ({
         ...s,
@@ -811,7 +805,6 @@
         status: overall,
       });
 
-      // If already complete after edit -> archive
       await autoArchiveIfCompleted(currentEditShipment.id, mergedStops);
 
       if (editError) editError.textContent = "";
@@ -888,7 +881,6 @@
     try {
       const supabaseClient = await ensureClient();
 
-      // Try insert with stops, fallback if no column
       let r = await supabaseClient
         .from("shipments")
         .insert({ ...baseInsert, stops })
@@ -908,7 +900,6 @@
 
       msg(`Aangemaakt: ${r.data.track_code}`);
 
-      // reset form
       document.getElementById("customer_name").value = "";
       document.getElementById("colli_count").value = "1";
       document.getElementById("shipment_type").value = "doos";
@@ -935,7 +926,7 @@
 
   if (btnCreate) btnCreate.addEventListener("click", (e) => { e.preventDefault(); createShipment(); });
 
-  // ---------------- PDF helpers (logo + data)
+  // ---------------- PDF helpers
   async function loadImageAsDataUrl(url) {
     try {
       const img = new Image();
@@ -954,20 +945,11 @@
       ctx.drawImage(loaded, 0, 0);
       return c.toDataURL("image/png");
     } catch {
-      return null; // silently ignore
+      return null;
     }
   }
 
-  function fmtDT(iso) {
-    try {
-      if (!iso) return "";
-      return new Date(iso).toLocaleString("nl-NL");
-    } catch {
-      return "";
-    }
-  }
-
-  // ---------------- PDF (Afleverbon) — includes logo + pickup/delivery times
+  // ---------------- PDF (Afleverbon)
   async function downloadAfleverPdf(shipment) {
     if (!window.jspdf?.jsPDF) {
       alert("jsPDF ontbreekt. Controleer script tag in dashboard.html.");
@@ -983,10 +965,8 @@
 
     let y = 42;
 
-    // Logo
     const logoDataUrl = await loadImageAsDataUrl(LOGO_URL);
     if (logoDataUrl) {
-      // small logo top-left
       doc.addImage(logoDataUrl, "PNG", 40, 22, 90, 30);
     }
 
@@ -1000,14 +980,13 @@
 
     doc.setFont("helvetica", "normal");
     doc.text(`Klant: ${shipment.customer_name || ""}`, 40, y); y += 14;
+
     const typeText = shipment.shipment_type === "overig"
       ? (shipment.shipment_type_other || "overig")
       : (shipment.shipment_type || "");
     doc.text(`Type: ${typeText}  •  Colli: ${shipment.colli_count ?? ""}`, 40, y); y += 14;
-
     doc.text(`Status: ${labelStatus(shipment.status)}`, 40, y); y += 18;
 
-    // Pickups
     doc.setFont("helvetica", "bold");
     doc.text(`Ophaaladres${pickups.length > 1 ? "sen" : ""}:`, 40, y); y += 14;
     doc.setFont("helvetica", "normal");
@@ -1015,17 +994,14 @@
       doc.text("—", 40, y); y += 14;
     } else {
       pickups.forEach((p, i) => {
-        const line = `${pickups.length > 1 ? (i + 1) + ". " : ""}${p.address}${p.prio ? " (PRIO)" : ""}`;
-        doc.text(line, 40, y); y += 14;
-        const t = p.picked_up_at ? fmtDT(p.picked_up_at) : "";
-        doc.text(`   Ophaaltijd: ${t || "—"}`, 40, y); y += 14;
+        doc.text(`${pickups.length > 1 ? (i + 1) + ". " : ""}${p.address}${p.prio ? " (PRIO)" : ""}`, 40, y); y += 14;
+        doc.text(`   Ophaaltijd: ${p.picked_up_at ? fmtDT(p.picked_up_at) : "—"}`, 40, y); y += 14;
         if (y > 780) { doc.addPage(); y = 42; }
       });
     }
 
     y += 6;
 
-    // Deliveries
     doc.setFont("helvetica", "bold");
     doc.text(`Bezorgadres${deliveries.length > 1 ? "sen" : ""}:`, 40, y); y += 14;
     doc.setFont("helvetica", "normal");
@@ -1033,8 +1009,7 @@
       doc.text("—", 40, y); y += 14;
     } else {
       deliveries.forEach((d, i) => {
-        const line = `${deliveries.length > 1 ? (i + 1) + ". " : ""}${d.address}${d.prio ? " (PRIO)" : ""}`;
-        doc.text(line, 40, y); y += 14;
+        doc.text(`${deliveries.length > 1 ? (i + 1) + ". " : ""}${d.address}${d.prio ? " (PRIO)" : ""}`, 40, y); y += 14;
 
         const deliveredAt = d.proof?.delivered_at ? fmtDT(d.proof.delivered_at) : "";
         doc.text(`   Bezorgtijd: ${deliveredAt || "—"}`, 40, y); y += 14;
@@ -1053,8 +1028,6 @@
     }
 
     y += 10;
-
-    // Timeline/events
     doc.setFont("helvetica", "bold");
     doc.text("Tijdpad:", 40, y); y += 14;
     doc.setFont("helvetica", "normal");
@@ -1108,6 +1081,7 @@
       const tag = st.type === "pickup" ? "Ophaaladres" : "Bezorgadres";
       const cur = st.status ? labelStatus(st.status) : "—";
       const prio = st.prio ? ` <span style="color:#0a0;font-weight:800;">PRIO</span>` : "";
+
       const timeLine =
         st.type === "pickup"
           ? (st.picked_up_at ? `Ophaaltijd: <b>${escapeHtml(fmtDT(st.picked_up_at))}</b>` : `Ophaaltijd: <b>—</b>`)
@@ -1124,44 +1098,26 @@
       btns.className = "stopStatusButtons";
 
       if (st.type === "pickup") {
-        // ✅ Pickup: only Opgehaald + Probleem
         btns.appendChild(
-          mkBtn(
-            "Opgehaald",
-            () => updateStopStatus(shipment, idx, "OPGEHAALD"),
-            statusBtnClass(st.status, "OPGEHAALD")
-          )
+          mkBtn("Opgehaald", () => updateStopStatus(shipment, idx, "OPGEHAALD"), statusBtnClass(st.status, "OPGEHAALD"))
         );
         btns.appendChild(
-          mkBtn(
-            "Probleem",
-            async () => {
-              const note = prompt("Wat is het probleem?");
-              if (!note) return;
-              await updateStopStatus(shipment, idx, "PROBLEEM", note);
-            },
-            statusBtnClass(st.status, "PROBLEEM")
-          )
+          mkBtn("Probleem", async () => {
+            const note = prompt("Wat is het probleem?");
+            if (!note) return;
+            await updateStopStatus(shipment, idx, "PROBLEEM", note);
+          }, statusBtnClass(st.status, "PROBLEEM"))
         );
       } else {
-        // ✅ Delivery: only Afgeleverd (modal) + Probleem
         btns.appendChild(
-          mkBtn(
-            "Afgeleverd",
-            () => openDeliveredModal(shipment, idx),
-            statusBtnClass(st.status, "AFGELEVERD")
-          )
+          mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx), statusBtnClass(st.status, "AFGELEVERD"))
         );
         btns.appendChild(
-          mkBtn(
-            "Probleem",
-            async () => {
-              const note = prompt("Wat is het probleem?");
-              if (!note) return;
-              await updateStopStatus(shipment, idx, "PROBLEEM", note);
-            },
-            statusBtnClass(st.status, "PROBLEEM")
-          )
+          mkBtn("Probleem", async () => {
+            const note = prompt("Wat is het probleem?");
+            if (!note) return;
+            await updateStopStatus(shipment, idx, "PROBLEEM", note);
+          }, statusBtnClass(st.status, "PROBLEEM"))
         );
       }
 
@@ -1205,7 +1161,6 @@
     const actions = div.querySelector(".actions");
     const sub = div.querySelector(".sub");
 
-    // Always
     actions.appendChild(mkBtn("Aflever-PDF", () => downloadAfleverPdf(s)));
     actions.appendChild(mkBtn("Verwijderen", () => deleteShipment(s)));
 
@@ -1213,8 +1168,6 @@
 
     if (!isArchived) {
       actions.appendChild(mkBtn("Wijzigen", () => openEditModal(s)));
-
-      // Per-address buttons block (ALWAYS)
       div.appendChild(renderStopStatusUI(s));
     }
 
@@ -1243,19 +1196,15 @@
 
     const all = (data || []).map((s) => {
       s._stopsNorm = normalizeStopsFromDb(s);
-
-      // keep legacy fields aligned
       const legacy = deriveLegacyFromStops(s._stopsNorm);
       if (!s.pickup_address && legacy.pickup_address) s.pickup_address = legacy.pickup_address;
       if (!s.delivery_address && legacy.delivery_address) s.delivery_address = legacy.delivery_address;
-
       return s;
     });
 
     const archived = all.filter((s) => !!s.archived_at || s.status === "GEARCHIVEERD");
     const active = all.filter((s) => !s.archived_at && s.status !== "GEARCHIVEERD");
 
-    // routeplanner cache: exclude fully delivered shipments (since these auto-archive anyway)
     activeShipmentsCache = active.filter((s) => s.status !== "AFGELEVERD");
     window.activeShipmentsCache = activeShipmentsCache;
 
@@ -1274,7 +1223,6 @@
       archived.forEach((s) => listArchivedEl.appendChild(renderShipmentCard(s)));
     }
 
-    // auto route
     if (autoRouteEl?.checked && window.__dvkMapsReady) {
       window.__dvkMaybeAutoRecalcRoute?.();
     }
@@ -1373,7 +1321,6 @@
     return el.duration?.value ?? Number.POSITIVE_INFINITY;
   }
 
-  // Greedy: deliveries pas nadat pickups van die shipment geweest zijn
   async function computeOrderedStopsGreedy(stops) {
     if (!stops.length) return [];
 
@@ -1413,10 +1360,7 @@
       for (const c of candidates) {
         const cIndex = idxOfStop(c);
         let cost = getDurationSeconds(matrix, currentIndex, cIndex);
-
-        // ✅ PRIO gets strong bias
         if (c.prio) cost = cost * 0.35;
-
         if (cost < bestCost) { bestCost = cost; best = c; }
       }
 
@@ -1429,7 +1373,6 @@
       currentIndex = idxOfStop(best);
     }
 
-    // laatste stop liefst delivery
     if (ordered.length && ordered[ordered.length - 1].type !== "delivery") {
       const lastDeliveryIdx = [...ordered].map((s, i) => ({ s, i })).reverse().find((x) => x.s.type === "delivery")?.i;
       if (lastDeliveryIdx != null) {
@@ -1542,7 +1485,7 @@
       setTab("active");
       await loadShipments(currentUserId);
 
-      // Optional realtime refresh (safe)
+      // Optional realtime refresh
       try {
         const supabaseClient = await ensureClient();
 
