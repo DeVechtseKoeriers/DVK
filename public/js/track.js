@@ -57,6 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ONDERWEG: "Onderweg",
       AFGELEVERD: "Afgeleverd",
       PROBLEEM: "Probleem",
+      GEARCHIVEERD: "Gearchiveerd",
     };
     return map[e] || (eventType || "Event");
   }
@@ -105,17 +106,29 @@ document.addEventListener("DOMContentLoaded", () => {
           prio: !!x.prio,
           status: x.status ?? null,
           proof: x.proof ?? null,
-          created_at: x.created_at ?? null,
-          updated_at: x.updated_at ?? null,
         }))
         .filter(s => s.address);
     }
 
-    // Fallback
+    // Fallback legacy
     const out = [];
     if (sh.pickup_address) out.push({ stop_index: 0, type:"pickup", address: String(sh.pickup_address).trim(), prio: !!sh.pickup_prio, status:null, proof:null });
     if (sh.delivery_address) out.push({ stop_index: 1, type:"delivery", address: String(sh.delivery_address).trim(), prio: !!sh.delivery_prio, status:null, proof:null });
     return out;
+  }
+
+  function shipmentTypeNice(sh) {
+    // ✅ dashboard gebruikt shipment_type + shipment_type_other
+    if (String(sh?.shipment_type || "").toLowerCase() === "overig") {
+      return sh?.shipment_type_other ? String(sh.shipment_type_other) : "Overig";
+    }
+    return sh?.shipment_type ? String(sh.shipment_type) : "-";
+  }
+
+  function shipmentColliNice(sh) {
+    // ✅ dashboard gebruikt colli_count
+    const v = sh?.colli_count ?? sh?.colli ?? sh?.colliCount ?? sh?.colli_count;
+    return (v === 0 || v) ? String(v) : "-";
   }
 
   async function ensureClient() {
@@ -135,7 +148,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }).join("");
     };
 
-    // “Witruimte” zoals je schets: alleen marge tussen klant en adressen
     const addressesBlock = `
       <div style="margin-top:10px;">
         <div style="font-weight:800;">Ophaaladres${pickupStops.length > 1 ? "sen" : ""}</div>
@@ -160,14 +172,8 @@ document.addEventListener("DOMContentLoaded", () => {
       ${addressesBlock}
 
       <div class="muted" style="margin-top:10px;">
-  Type: ${
-    esc(
-      sh.shipment_type === "overig"
-        ? (sh.shipment_type_other || "Overig")
-        : (sh.shipment_type || "-")
-    )
-  } • Colli: ${esc(sh.colli_count ?? "-")}
-</div>
+        Type: ${esc(shipmentTypeNice(sh))} • Colli: ${esc(shipmentColliNice(sh))}
+      </div>
 
       <div class="status-badge" style="margin-top:8px;">
         ${esc(labelStatus(sh.status))}
@@ -177,12 +183,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderStopsCard(stops, sh) {
     if (!stopsCard) return;
-    const stopsSafe = Array.isArray(stops) ? stops : [];
-
-    // Je wilde stops niet per se in een aparte kaart. Als je hem leeg wil houden:
+    // jij wil ‘m leeg houden: prima
     stopsCard.innerHTML = "";
-
-    // Als je 'm later toch wil tonen, zet dan hieronder je HTML terug.
   }
 
   function buildTimelineFromEvents(events) {
@@ -198,22 +200,44 @@ document.addEventListener("DOMContentLoaded", () => {
     }).join("");
   }
 
-  function buildTimelineFromStops(stops) {
+  function buildTimelinePerStopWithTime(stops, events) {
     const stopsSafe = Array.isArray(stops) ? stops : [];
+    const eventsSafe = Array.isArray(events) ? events : [];
+
     if (!stopsSafe.length) return `<li class="muted">Nog geen tijdpad.</li>`;
+
+    // laatste event per stop_index -> gebruik voor tijd achter status
+    const lastEvByStop = new Map();
+    for (const ev of eventsSafe) {
+      if (ev.stop_index === null || ev.stop_index === undefined) continue;
+      const si = Number(ev.stop_index);
+      lastEvByStop.set(si, ev);
+    }
 
     return stopsSafe.map((st, i) => {
       const type = st.type === "pickup" ? "Ophalen" : "Bezorgen";
-      const statusTxt = labelStatus(st.status || "Onbekend");
-      return `<li>${i + 1}. ${esc(type)}: ${esc(st.address)} — <b>${esc(statusTxt)}</b></li>`;
+      const statusUpper = String(st.status || "Onbekend").toUpperCase();
+      const statusTxt = labelStatus(statusUpper);
+
+      // tijd bepalen: probeer event van deze stop te gebruiken
+      const ev = lastEvByStop.get(Number(st.stop_index ?? i)) || null;
+
+      // Als event_type niet matcht met stop-status (kan gebeuren), toch tijd tonen als die bestaat.
+      const timeTxt = ev?.created_at ? fmtDateTimeNL(ev.created_at) : "";
+
+      // bij PROBLEEM note toevoegen indien beschikbaar
+      const problemNote = (statusUpper === "PROBLEEM" && ev?.note) ? ` — ${esc(ev.note)}` : "";
+
+      return `<li>${i + 1}. ${esc(type)}: ${esc(st.address)} — <b>${esc(statusTxt)}</b>${timeTxt ? ` • <span class="muted">${esc(timeTxt)}</span>` : ""}${problemNote}</li>`;
     }).join("");
   }
 
   function renderTimeline(events, stops) {
     if (!eventsCard) return;
 
-    let items = buildTimelineFromEvents(events);
-    if (!items) items = buildTimelineFromStops(stops);
+    // Jij wilt in het screenshot “per adres” regels met status + datum/tijd
+    // Daarom gebruiken we per-stop tijdpad als hoofdweergave.
+    const items = buildTimelinePerStopWithTime(stops, events);
 
     eventsCard.innerHTML = `
       <div style="font-weight:800;">Tijdpad</div>
@@ -230,12 +254,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Alleen "laden..." (geen "Code: ...")
     if (subLine) subLine.textContent = "Laden…";
 
     const supabaseClient = await ensureClient();
 
-    // Shipment ophalen
     const { data: sh, error } = await supabaseClient
       .from("shipments")
       .select("*, stops")
@@ -255,27 +277,23 @@ document.addEventListener("DOMContentLoaded", () => {
     // Events ophalen (tijdpad met datum/tijd)
     let events = [];
     try {
-      const evRes = await supabaseClient
+      const { data: evData, error: evErr } = await supabaseClient
         .from("shipment_events")
         .select("event_type, note, stop_index, created_at")
         .eq("shipment_id", sh.id)
         .order("created_at", { ascending: true });
 
-      if (!evRes.error && Array.isArray(evRes.data)) {
-        events = evRes.data;
-      }
+      if (!evErr && Array.isArray(evData)) events = evData;
     } catch {
-      // stil falen, we hebben fallback op stops
+      // stil falen, we hebben fallback
     }
 
-    // Render
-    if (subLine) subLine.textContent = ""; // helemaal leeg
+    if (subLine) subLine.textContent = "";
 
     renderShipmentCard(sh, stops);
     renderStopsCard(stops, sh);
     renderTimeline(events, stops);
 
-    // PDF knop (veilig)
     if (btnPdf) {
       btnPdf.onclick = () => makePdf(sh, stops, events || []);
     }
@@ -305,7 +323,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     line(`Trackcode: ${displayTrackCode(sh.track_code)}`, true);
     line(`Klant: ${sh.customer_name || "-"}`);
-    line(`Type: ${sh.type || "-"} • Colli: ${sh.colli ?? sh.colli_count ?? "-"}`);
+    // ✅ FIX: juiste velden voor type + colli
+    line(`Type: ${shipmentTypeNice(sh)} • Colli: ${shipmentColliNice(sh)}`);
     line(`Status: ${labelStatus(sh.status)}`);
 
     y += 10;
@@ -317,14 +336,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     y += 10;
     line("Tijdpad:", true);
-    if (Array.isArray(events) && events.length) {
-      events.forEach((e) => {
-        const t = fmtDateTimeNL(e.created_at);
-        const si = (e.stop_index === 0 || e.stop_index) ? ` (stop ${Number(e.stop_index) + 1})` : "";
-        line(`${eventTypeToNice(e.event_type)}${si}${t ? ` • ${t}` : ""}${e.note ? ` • ${e.note}` : ""}`);
+
+    if (Array.isArray(stops) && stops.length) {
+      // per stop met tijd (net als UI)
+      const lastEvByStop = new Map();
+      if (Array.isArray(events)) {
+        for (const ev of events) {
+          if (ev.stop_index === null || ev.stop_index === undefined) continue;
+          lastEvByStop.set(Number(ev.stop_index), ev);
+        }
+      }
+
+      stops.forEach((st, i) => {
+        const ev = lastEvByStop.get(Number(st.stop_index ?? i)) || null;
+        const dt = ev?.created_at ? fmtDateTimeNL(ev.created_at) : "";
+        const statusTxt = labelStatus(st.status || "Onbekend");
+        const type = st.type === "pickup" ? "Ophalen" : "Bezorgen";
+        const extra = dt ? ` • ${dt}` : "";
+        const note = (String(st.status || "").toUpperCase() === "PROBLEEM" && ev?.note) ? ` • ${ev.note}` : "";
+        line(`${i + 1}. ${type}: ${st.address} — ${statusTxt}${extra}${note}`);
       });
     } else {
-      line("Nog geen events. Tijdpad gebaseerd op stops.");
+      line("Nog geen stops beschikbaar.");
     }
 
     doc.save(`Track-${displayTrackCode(sh.track_code)}.pdf`);
