@@ -237,26 +237,34 @@
 
   // ---------------- Google Places attach
   function attachPlacesToInput(inputEl) {
-    try {
-      if (!inputEl) return;
-      if (inputEl.dataset.placesAttached === "1") return;
-      if (!window.google || !google.maps || !google.maps.places) return;
+  try {
+    if (!inputEl) return;
+    if (inputEl.dataset.placesAttached === "1") return;
+    if (!window.google || !google.maps || !google.maps.places) return;
 
-      const ac = new google.maps.places.Autocomplete(inputEl, {
-        fields: ["formatted_address", "geometry", "name"],
-        types: ["geocode"],
-      });
+    const ac = new google.maps.places.Autocomplete(inputEl, {
+      fields: ["formatted_address", "name", "place_id"],
+      // GEEN types filter -> dan krijg je adressen + bedrijven
+      // types: ["geocode"],
+    });
 
-      ac.addListener("place_changed", () => {
-        const place = ac.getPlace();
-        if (place && place.formatted_address) inputEl.value = place.formatted_address;
-      });
+    ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      // Als het een bedrijf is, gebruik name + formatted_address
+      if (place?.name && place?.formatted_address) {
+        inputEl.value = `${place.name}, ${place.formatted_address}`;
+      } else if (place?.formatted_address) {
+        inputEl.value = place.formatted_address;
+      } else if (place?.name) {
+        inputEl.value = place.name;
+      }
+    });
 
-      inputEl.dataset.placesAttached = "1";
-    } catch (e) {
-      console.warn("Places attach failed:", e);
-    }
+    inputEl.dataset.placesAttached = "1";
+  } catch (e) {
+    console.warn("Places attach failed:", e);
   }
+}
 
   function initAutocomplete() {
     if (stopsWrap) stopsWrap.querySelectorAll("input.stopAddress").forEach(attachPlacesToInput);
