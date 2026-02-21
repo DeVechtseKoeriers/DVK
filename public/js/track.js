@@ -160,8 +160,14 @@ document.addEventListener("DOMContentLoaded", () => {
       ${addressesBlock}
 
       <div class="muted" style="margin-top:10px;">
-        Type: ${esc(sh.type || "-")} • Colli: ${esc(sh.colli ?? sh.colli_count ?? "-")}
-      </div>
+  Type: ${
+    esc(
+      sh.shipment_type === "overig"
+        ? (sh.shipment_type_other || "Overig")
+        : (sh.shipment_type || "-")
+    )
+  } • Colli: ${esc(sh.colli_count ?? "-")}
+</div>
 
       <div class="status-badge" style="margin-top:8px;">
         ${esc(labelStatus(sh.status))}
