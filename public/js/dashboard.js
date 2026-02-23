@@ -1492,31 +1492,38 @@
       setTab("active");
       await loadShipments(currentUserId);
 
-      // Optional realtime refresh (debounced, single subscription)
-      if (!realtimeSubscribed) {
-        realtimeSubscribed = true;
-        try {
-          const supabaseClient = await ensureClient();
+      // Optional realtime refresh (stabiel)
+try {
+  const supabaseClient = await ensureClient();
 
-          supabaseClient
-            .channel("shipments_changes")
-            .on(
-              "postgres_changes",
-              {
-                event: "*",
-                schema: "public",
-                table: "shipments",
-                filter: `driver_id=eq.${currentUserId}`,
-              },
-              () => {
-                clearTimeout(realtimeTimer);
-                realtimeTimer = setTimeout(() => loadShipments(currentUserId), 400);
-              }
-            )
-            .subscribe();
-        } catch (e) {
-          console.warn("Realtime subscribe skipped:", e);
-        }
+  // 🔥 als er al een channel bestaat: eerst opruimen
+  if (window.__dvkShipmentsChannel) {
+    try { await supabaseClient.removeChannel(window.__dvkShipmentsChannel); } catch {}
+    window.__dvkShipmentsChannel = null;
+  }
+
+  let rtTimer = null;
+
+  window.__dvkShipmentsChannel = supabaseClient
+    .channel("shipments_changes")
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "shipments",
+        filter: `driver_id=eq.${currentUserId}`,
+      },
+      () => {
+        // ✅ debounce zodat hij niet blijft “Laden...”
+        clearTimeout(rtTimer);
+        rtTimer = setTimeout(() => loadShipments(currentUserId), 400);
+      }
+    )
+    .subscribe();
+} catch (e) {
+  console.warn("Realtime subscribe skipped:", e);
+}
       }
     } catch (e) {
       console.error("INIT error:", e);
