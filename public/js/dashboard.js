@@ -1492,17 +1492,22 @@ if (editType) editType.addEventListener("change", toggleEditOther);
       setTab("active");
       await loadShipments(currentUserId);
 
-      // Optional realtime refresh (stabiel)
+      // Optional realtime refresh (anti-loop + debounce)
 try {
   const supabaseClient = await ensureClient();
 
-  // 🔥 als er al een channel bestaat: eerst opruimen
+  // ✅ Zorg dat er maar 1 channel actief is (ook bij hot reload / dubbele script load)
   if (window.__dvkShipmentsChannel) {
-    try { await supabaseClient.removeChannel(window.__dvkShipmentsChannel); } catch {}
+    try { supabaseClient.removeChannel(window.__dvkShipmentsChannel); } catch {}
     window.__dvkShipmentsChannel = null;
   }
 
+  // ✅ Debounce zodat hij niet elke change meteen opnieuw laadt
   let rtTimer = null;
+  const scheduleReload = () => {
+    clearTimeout(rtTimer);
+    rtTimer = setTimeout(() => loadShipments(currentUserId), 600);
+  };
 
   window.__dvkShipmentsChannel = supabaseClient
     .channel("shipments_changes")
@@ -1514,17 +1519,17 @@ try {
         table: "shipments",
         filter: `driver_id=eq.${currentUserId}`,
       },
-      () => {
-        // ✅ debounce zodat hij niet blijft “Laden...”
-        clearTimeout(rtTimer);
-        rtTimer = setTimeout(() => loadShipments(currentUserId), 400);
-      }
+      () => scheduleReload()
     )
-    .subscribe();
+    .subscribe((status) => {
+      // Handig om te zien of hij steeds reconnect
+      // console.log("Realtime status:", status);
+    });
+
 } catch (e) {
   console.warn("Realtime subscribe skipped:", e);
 }
-      }
+      
     } catch (e) {
       console.error("INIT error:", e);
       msg("Init fout: " + (e?.message || e));
