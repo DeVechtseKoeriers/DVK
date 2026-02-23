@@ -236,3 +236,17 @@ button.statusBtn.isActive {
   border-color: #0f7a35;
   box-shadow: 0 0 0 2px rgba(22,163,74,.25);
 }
+
+/* Type zending & Aantal colli onder elkaar */
+.typeColliStack{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap:12px;
+  max-width:380px;   /* bepaal zelf hoe breed */
+}
+
+.typeColliStack select,
+.typeColliStack input{
+  width:100%;
+  box-sizing:border-box;
+}
