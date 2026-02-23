@@ -1,16 +1,17 @@
-// DVK Chauffeur Dashboard — STABLE SINGLE-FILE BUILD (v5)
+/ DVK Chauffeur Dashboard — STABLE SINGLE-FILE BUILD (v6)
 // Fixes:
 // - No driver_id=null queries
 // - No double init
 // - initMaps always defined
-// - Uses IDs exactly as in your dashboard.html (create uses edit_* ids in your HTML)
-// - routeStatus id fixed
+// - loadShipments has lock + renders fully (no placeholders)
+// - Route planner code ONLY inside planOptimalRoute (no stray code outside functions)
+// - Auto route works again (debounced) and won’t loop
 // - Realtime: single channel + debounced reload
 
 (() => {
   "use strict";
 
-  // ✅ voorkomt dubbel draaien (heel vaak oorzaak van “blijft laden”)
+  // ✅ voorkomt dubbel draaien (vaak oorzaak van “blijft laden”)
   if (window.__dvkDashboardInit) {
     console.warn("DVK dashboard.js draait al — skip duplicate init");
     return;
@@ -18,7 +19,7 @@
   window.__dvkDashboardInit = true;
 
   // ---------------- CONFIG
-  const LOGO_URL = "/DVK/assets/logo.png";
+  const LOGO_URL = "/DVK/assets/logo.png"; // (nu niet gebruikt, maar laten staan)
   const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
 
   // ---------------- DOM
@@ -48,7 +49,7 @@
   const editOverlay = document.getElementById("editOverlay");
   const editShipmentInfo = document.getElementById("editShipmentInfo");
   const editCustomer = document.getElementById("editCustomer");
-  const editType = document.getElementById("edit_shipment_type"); // same id (OK, but modal shown/hidden)
+  const editType = document.getElementById("edit_shipment_type");
   const editColli = document.getElementById("edit_colli_count");
   const editOtherWrapEl = document.getElementById("edit_otherWrap");
   const editTypeOther = document.getElementById("edit_shipment_type_other");
@@ -93,19 +94,28 @@
   let currentTab = "active";
   let currentUserId = null;
 
-  // Realtime channel
+  // Realtime channel debounce timer
   let rtTimer = null;
+
+  // load lock (voorkomt “blijft laden” loops)
+  let isLoadingShipments = false;
+
+  // route lock (voorkomt parallel route berekeningen)
+  let isPlanningRoute = false;
 
   // Proof modal state
   let currentDeliveryShipment = null;
   let currentDeliveryStopIndex = null;
 
+  // Edit state
   let currentEditShipment = null;
 
+  // Active shipments cache (voor routeplanner)
   let activeShipmentsCache = [];
   window.activeShipmentsCache = activeShipmentsCache;
 
-  // Last planned route order
+  // Last planned route order -> voor sorteren “Adressen”
+  // key = `${shipmentId}_${stopIndex}` -> rank 1..N
   let lastRouteRank = new Map();
 
   // ---------------- Helpers
@@ -497,8 +507,8 @@
     const firstP = stops.find(x => x.type === "pickup")?.address || shipment.pickup_address || "";
     const lastD = [...stops].reverse().find(x => x.type === "delivery")?.address || shipment.delivery_address || "";
 
-    let headerLine = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
-    let stopLine = st ? `<br/><span class="small"><b>Bezorgadres:</b> ${escapeHtml(st.address)}</span>` : "";
+    const headerLine = `${escapeHtml(firstP)} → ${escapeHtml(lastD)} <span class="small">(${stops.length} stops)</span>`;
+    const stopLine = st ? `<br/><span class="small"><b>Bezorgadres:</b> ${escapeHtml(st.address)}</span>` : "";
 
     if (modalShipmentInfo) {
       modalShipmentInfo.innerHTML = `<b>${escapeHtml(shipment.track_code)}</b><br/>${headerLine}${stopLine}`;
@@ -1018,75 +1028,335 @@
     return div;
   }
 
-  async function loadShipments(driverId) {
-  if (!driverId) return;
+  /**
+   * loadShipments(driverId, options?)
+   * options.silentRoute = true  -> NIET auto-route triggeren (voorkomt loops)
+   */
+  async function loadShipments(driverId, options = {}) {
+    if (!driverId) return;
+    if (isLoadingShipments) return;
 
-  if (isLoadingShipments) return;
-  isLoadingShipments = true;
+    isLoadingShipments = true;
+    try {
+      const supabaseClient = await ensureClient();
 
-  try {
+      if (listEl) listEl.innerHTML = "Laden...";
+      if (listArchivedEl) listArchivedEl.innerHTML = "";
 
-    const supabaseClient = await ensureClient();
+      const { data, error } = await supabaseClient
+        .from("shipments")
+        .select("*, stops")
+        .eq("driver_id", driverId)
+        .order("created_at", { ascending: false });
 
-    if (listEl) listEl.innerHTML = "Laden...";
-    if (listArchivedEl) listArchivedEl.innerHTML = "";
+      if (error) {
+        if (listEl) listEl.innerHTML = "Fout: " + error.message;
+        return;
+      }
 
-    const { data, error } = await supabaseClient
-      .from("shipments")
-      .select("*, stops")
-      .eq("driver_id", driverId)
-      .order("created_at", { ascending: false });
+      const all = (data || []).map((s) => {
+        s._stopsNorm = normalizeStopsFromDb(s);
+        const legacy = deriveLegacyFromStops(s._stopsNorm);
 
-    // ... rest van jouw bestaande code blijft EXACT hetzelfde ...
+        // legacy velden “invullen” voor weergave
+        if (!s.pickup_address && legacy.pickup_address) s.pickup_address = legacy.pickup_address;
+        if (!s.delivery_address && legacy.delivery_address) s.delivery_address = legacy.delivery_address;
 
-    if (autoRouteEl?.checked && window.__dvkMapsReady) {
-      window.__dvkMaybeAutoRecalcRoute?.();
+        return s;
+      });
+
+      const archived = all.filter((s) => !!s.archived_at || s.status === "GEARCHIVEERD");
+      const active = all.filter((s) => !s.archived_at && s.status !== "GEARCHIVEERD");
+
+      // cache voor routeplanner (alleen niet-gearchiveerd)
+      activeShipmentsCache = active.filter((s) => s.status !== "AFGELEVERD");
+      window.activeShipmentsCache = activeShipmentsCache;
+
+      if (listEl) listEl.innerHTML = "";
+      if (listArchivedEl) listArchivedEl.innerHTML = "";
+
+      if (active.length === 0) {
+        if (listEl) listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
+      } else {
+        active.forEach((s) => listEl.appendChild(renderShipmentCard(s)));
+      }
+
+      if (archived.length === 0) {
+        if (listArchivedEl) listArchivedEl.innerHTML = "<small>Geen gearchiveerde zendingen.</small>";
+      } else {
+        archived.forEach((s) => listArchivedEl.appendChild(renderShipmentCard(s)));
+      }
+
+      // ✅ alleen auto-route triggeren als dat mag
+      if (!options.silentRoute && autoRouteEl?.checked && window.__dvkMapsReady) {
+        window.__dvkMaybeAutoRecalcRoute?.();
+      }
+    } finally {
+      isLoadingShipments = false;
+    }
+  }
+
+  // ---------------- ROUTEPLANNER (Maps)
+  let map = null;
+  let directionsService = null;
+  let directionsRenderer = null;
+
+  function ensureMapsReady() {
+    if (!window.google?.maps) throw new Error("Google Maps API niet geladen.");
+  }
+
+  function ensureMapInit() {
+    ensureMapsReady();
+
+    if (!map && mapEl) {
+      map = new google.maps.Map(mapEl, {
+        zoom: 9,
+        center: { lat: 52.27, lng: 5.07 },
+        mapTypeControl: true,
+      });
     }
 
-  } finally {
-    isLoadingShipments = false;
+    if (!directionsService) directionsService = new google.maps.DirectionsService();
+    if (!directionsRenderer && map) {
+      directionsRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers: false });
+    }
   }
-}
 
-   // Save rank map so “Adressen” kan volgen
-    const rank = new Map();
-    ordered.forEach((s, i) => rank.set(`${s.shipmentId}_${s.stopIndex}`, i + 1));
-    lastRouteRank = rank;
+  function clearRouteList() {
+    if (routeListEl) routeListEl.innerHTML = "";
+  }
 
-    const res = await drawRouteOnMap(ordered);
-    setRouteSummaryFromDirections(res);
+  function renderRouteList(stops) {
+    if (!routeListEl) return;
+    routeListEl.innerHTML = "";
 
-    // re-render adressenvolgorde (maar voorkom loops)
-    if (currentUserId && !isLoadingShipments) {
-      await loadShipments(currentUserId, { silentRoute: true });
+    const title = document.createElement("div");
+    title.style.fontWeight = "700";
+    title.style.marginBottom = "6px";
+    title.textContent = "Optimale volgorde:";
+    routeListEl.appendChild(title);
+
+    stops.forEach((s, i) => {
+      const row = document.createElement("div");
+      const prio = s.prio ? ' <span style="color:#0a0;font-weight:800;">PRIO</span>' : "";
+      row.innerHTML = `${i + 1}. ${escapeHtml(s.label)}${prio}`;
+      routeListEl.appendChild(row);
+    });
+  }
+
+  function setRouteSummaryEmpty() {
+    if (routeSummaryEl) routeSummaryEl.innerHTML = `Totale afstand: – &nbsp;&nbsp;&nbsp; Totale reistijd: –`;
+  }
+
+  function setRouteSummaryFromDirections(res) {
+    if (!routeSummaryEl) return;
+
+    try {
+      const legs = res?.routes?.[0]?.legs || [];
+      let meters = 0;
+      let seconds = 0;
+      for (const leg of legs) {
+        meters += leg?.distance?.value || 0;
+        seconds += leg?.duration?.value || 0;
+      }
+      const km = (meters / 1000).toFixed(1);
+      const h = Math.floor(seconds / 3600);
+      const m = Math.round((seconds % 3600) / 60);
+      const timeText = h > 0 ? `${h}u ${m}m` : `${m}m`;
+      routeSummaryEl.innerHTML = `Totale afstand: ${km} km &nbsp;&nbsp;&nbsp; Totale reistijd: ${timeText}`;
+    } catch {
+      setRouteSummaryEmpty();
+    }
+  }
+
+  function buildStopsFromActiveShipments() {
+    const out = [];
+    for (const sh of (window.activeShipmentsCache || [])) {
+      const stops = sh._stopsNorm || normalizeStopsFromDb(sh);
+      if (!stops.length) continue;
+
+      stops.forEach((st, idx) => {
+        out.push({
+          id: `${sh.id}_${idx}`,
+          shipmentId: sh.id,
+          stopIndex: idx,
+          type: st.type,
+          address: st.address,
+          prio: !!st.prio,
+          label: `${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address} (${sh.track_code || ""})`,
+        });
+      });
+    }
+    return out;
+  }
+
+  async function buildTimeMatrix(addresses) {
+    ensureMapsReady();
+    const svc = new google.maps.DistanceMatrixService();
+    return await new Promise((resolve, reject) => {
+      svc.getDistanceMatrix(
+        {
+          origins: addresses,
+          destinations: addresses,
+          travelMode: google.maps.TravelMode.DRIVING,
+          drivingOptions: {
+            departureTime: new Date(),
+            trafficModel: google.maps.TrafficModel.BEST_GUESS,
+          },
+          unitSystem: google.maps.UnitSystem.METRIC,
+        },
+        (res, status) => {
+          if (status !== "OK" || !res) return reject(new Error("DistanceMatrix fout: " + status));
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  function getDurationSeconds(matrix, i, j) {
+    const el = matrix?.rows?.[i]?.elements?.[j];
+    if (!el || el.status !== "OK") return Number.POSITIVE_INFINITY;
+    return el.duration?.value ?? Number.POSITIVE_INFINITY;
+  }
+
+  async function computeOrderedStopsGreedy(stops) {
+    if (!stops.length) return [];
+
+    // index 0 = BASE_ADDRESS, daarna stops 1..n
+    const addrs = [BASE_ADDRESS, ...stops.map((s) => s.address)];
+    const matrix = await buildTimeMatrix(addrs);
+
+    // pickups moeten eerst af voor dezelfde shipment (basislogica)
+    const pickupNeed = new Map();
+    for (const s of stops) {
+      if (s.type === "pickup") pickupNeed.set(s.shipmentId, (pickupNeed.get(s.shipmentId) || 0) + 1);
+    }
+    const donePickups = new Map();
+
+    const remaining = new Map();
+    stops.forEach((s) => remaining.set(s.id, s));
+
+    let currentIndex = 0; // base
+    const ordered = [];
+
+    const idxOfStop = (stop) => 1 + stops.findIndex((x) => x.id === stop.id);
+
+    while (remaining.size > 0) {
+      // candidates = pickups altijd, deliveries alleen als pickups gedaan (tenzij geen keuze)
+      const candidates = [];
+      for (const s of remaining.values()) {
+        if (s.type === "pickup") { candidates.push(s); continue; }
+        const need = pickupNeed.get(s.shipmentId) || 0;
+        const done = donePickups.get(s.shipmentId) || 0;
+        if (need === 0 || done >= need) candidates.push(s);
+      }
+      if (!candidates.length) {
+        for (const s of remaining.values()) candidates.push(s);
+      }
+
+      let best = null;
+      let bestCost = Number.POSITIVE_INFINITY;
+
+      for (const c of candidates) {
+        const cIndex = idxOfStop(c);
+        let cost = getDurationSeconds(matrix, currentIndex, cIndex);
+
+        // prio krijgt flinke bonus (lager = beter)
+        if (c.prio) cost = cost * 0.35;
+
+        if (cost < bestCost) { bestCost = cost; best = c; }
+      }
+
+      ordered.push(best);
+      remaining.delete(best.id);
+
+      if (best.type === "pickup") {
+        donePickups.set(best.shipmentId, (donePickups.get(best.shipmentId) || 0) + 1);
+      }
+      currentIndex = idxOfStop(best);
     }
 
-    if (!silent) routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
-  } catch (e) {
-    console.error(e);
-    routeMsg("Route fout: " + (e?.message || e));
-  } finally {
-    isPlanningRoute = false;
+    return ordered;
   }
-}
 
-function maybeAutoRecalcRoute() {
-  if (!autoRouteEl?.checked) return;
-  if (!window.__dvkMapsReady) return;
+  async function drawRouteOnMap(orderedStops) {
+    ensureMapInit();
 
-  clearTimeout(window.__dvkRouteTimer);
-  window.__dvkRouteTimer = setTimeout(() => planOptimalRoute({ silent: true }), 600);
-}
-window.__dvkMaybeAutoRecalcRoute = maybeAutoRecalcRoute;
+    const waypoints = orderedStops.map((s) => ({ location: s.address, stopover: true }));
 
-if (btnPlanRoute) btnPlanRoute.addEventListener("click", () => planOptimalRoute());
+    const req = {
+      origin: BASE_ADDRESS,
+      destination: BASE_ADDRESS,
+      waypoints,
+      optimizeWaypoints: false,
+      travelMode: google.maps.TravelMode.DRIVING,
+    };
 
-/**
- * ✅ Google Maps callback (blijft exact één)
- * Let op: in jouw script staat window.initMaps al — die blijft staan.
- */
+    return await new Promise((resolve, reject) => {
+      directionsService.route(req, (res, status) => {
+        if (status !== "OK" || !res) return reject(new Error("Directions fout: " + status));
+        directionsRenderer.setDirections(res);
+        resolve(res);
+      });
+    });
+  }
 
-  // ✅ Google Maps callback (moet GLOBAL bestaan vóór maps callback)
+  async function planOptimalRoute({ silent = false } = {}) {
+    if (isPlanningRoute) return;
+    isPlanningRoute = true;
+
+    try {
+      routeMsg("Route berekenen...");
+      clearRouteList();
+
+      const stops = buildStopsFromActiveShipments();
+      if (!stops.length) {
+        routeMsg("Geen actieve zendingen voor routeplanning.");
+        clearRouteList();
+        if (directionsRenderer) directionsRenderer.set("directions", null);
+        setRouteSummaryEmpty();
+        lastRouteRank = new Map();
+        return;
+      }
+
+      const ordered = await computeOrderedStopsGreedy(stops);
+      renderRouteList(ordered);
+
+      // ✅ Save rank map zodat “Adressen” dezelfde volgorde toont
+      const rank = new Map();
+      ordered.forEach((s, i) => rank.set(`${s.shipmentId}_${s.stopIndex}`, i + 1));
+      lastRouteRank = rank;
+
+      const res = await drawRouteOnMap(ordered);
+      setRouteSummaryFromDirections(res);
+
+      // ✅ re-render “Adressen” volgorde maar ZONDER auto-route loop
+      if (currentUserId) {
+        await loadShipments(currentUserId, { silentRoute: true });
+      }
+
+      if (!silent) routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
+      else routeMsg(`Route bijgewerkt • ${ordered.length} stops`);
+    } catch (e) {
+      console.error(e);
+      routeMsg("Route fout: " + (e?.message || e));
+    } finally {
+      isPlanningRoute = false;
+    }
+  }
+
+  function maybeAutoRecalcRoute() {
+    if (!autoRouteEl?.checked) return;
+    if (!window.__dvkMapsReady) return;
+
+    clearTimeout(window.__dvkRouteTimer);
+    window.__dvkRouteTimer = setTimeout(() => planOptimalRoute({ silent: true }), 600);
+  }
+  window.__dvkMaybeAutoRecalcRoute = maybeAutoRecalcRoute;
+
+  if (btnPlanRoute) btnPlanRoute.addEventListener("click", () => planOptimalRoute({ silent: false }));
+
+  // ✅ Google Maps callback (MOET GLOBAL bestaan)
   window.initMaps = function () {
     try {
       window.__dvkMapsReady = true;
