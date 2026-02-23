@@ -237,16 +237,24 @@ button.statusBtn.isActive {
   box-shadow: 0 0 0 2px rgba(22,163,74,.25);
 }
 
-/* Type zending & Aantal colli zelfde breedte als adresvelden */
-.typeColliStack{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap:12px;
-  width:100%;
-}
+<div class="typeColliStack">
+  <div>
+    <label>Type zending</label><br/>
+    <select id="shipment_type">
+      <option value="doos">Doos</option>
+      <option value="enveloppe">Enveloppe</option>
+      <option value="pallet">Pallet</option>
+      <option value="overig">Overig</option>
+    </select>
+  </div>
 
-.typeColliStack select,
-.typeColliStack input{
-  width:100%;
-  box-sizing:border-box;
-}
+  <div>
+    <label>Aantal colli</label><br/>
+    <input id="colli_count" type="number" min="1" value="1" />
+  </div>
+</div>
+
+<div id="otherWrap" style="display:none">
+  <label>Overig (invullen)</label><br/>
+  <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+</div>
