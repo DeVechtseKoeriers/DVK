@@ -1537,4 +1537,6 @@ if (editType) editType.addEventListener("change", toggleEditOther);
   } catch (e) {
     console.error("INIT error:", e);
   }
+
+})();
 })();
