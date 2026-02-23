@@ -40,21 +40,26 @@
 
       <!-- Type + Colli (CREATE: juiste IDs!) -->
       <div class="typeColliGrid">
-        <label for="shipment_type">Type zending</label>
-<select id="shipment_type">
-  <option value="doos">Doos</option>
-  <option value="enveloppe">Enveloppe</option>
-  <option value="pallet">Pallet</option>
-  <option value="overig">Overig</option>
-</select>
+  <div class="fieldRow">
+    <label for="shipment_type">Type zending</label>
+    <select id="shipment_type">
+      <option value="doos">Doos</option>
+      <option value="enveloppe">Enveloppe</option>
+      <option value="pallet">Pallet</option>
+      <option value="overig">Overig</option>
+    </select>
+  </div>
 
-<div id="otherWrap" style="display:none">
-  <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+  <div id="otherWrap" class="fieldRow" style="display:none">
+    <label for="shipment_type_other">Overig (invullen)</label>
+    <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+  </div>
+
+  <div class="fieldRow">
+    <label for="colli_count">Aantal colli</label>
+    <input id="colli_count" type="number" min="1" value="1" />
+  </div>
 </div>
-
-<label for="colli_count">Aantal colli</label>
-<input id="colli_count" type="number" min="1" value="1" />
-      </div>
 
       <div style="align-self:flex-end; margin-top:10px;">
         <button id="btnCreate" type="button">Aanmaken</button>
@@ -131,29 +136,27 @@
       <small class="muted">Tip: begin te typen en kies een adres uit de lijst.</small>
       <div id="editStopsWrap" class="stopsWrap"></div>
 
-      <!-- Edit: ALLEEN hier edit_* (en maar 1x!) -->
-      <div class="typeColliGrid" style="margin-top:10px;">
-        <div class="fieldRow">
-          <label for="edit_shipment_type">Type zending</label>
-          <select id="edit_shipment_type">
-            <option value="doos">Doos</option>
-            <option value="enveloppe">Enveloppe</option>
-            <option value="pallet">Pallet</option>
-            <option value="overig">Overig</option>
-          </select>
-        </div>
+      <div class="typeColliGrid">
+  <div class="fieldRow">
+    <label for="edit_shipment_type">Type zending</label>
+    <select id="edit_shipment_type">
+      <option value="doos">Doos</option>
+      <option value="enveloppe">Enveloppe</option>
+      <option value="pallet">Pallet</option>
+      <option value="overig">Overig</option>
+    </select>
+  </div>
 
-        <div id="edit_otherWrap" class="fieldRow" style="display:none">
-          <label for="edit_shipment_type_other">Overig (invullen)</label>
-          <input id="edit_shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
-        </div>
+  <div id="edit_otherWrap" class="fieldRow" style="display:none">
+    <label for="edit_shipment_type_other">Overig (invullen)</label>
+    <input id="edit_shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+  </div>
 
-        <div class="fieldRow">
-          <label for="edit_colli_count">Aantal colli</label>
-          <input id="edit_colli_count" type="number" min="1" value="1" />
-        </div>
-      </div>
-
+  <div class="fieldRow">
+    <label for="edit_colli_count">Aantal colli</label>
+    <input id="edit_colli_count" type="number" min="1" value="1" />
+  </div>
+</div>
       <p id="editError" class="small" style="color:#b00020;"></p>
 
       <div class="row" style="justify-content:flex-end;">
