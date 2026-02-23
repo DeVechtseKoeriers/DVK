@@ -35,30 +35,31 @@
       </div>
 
       <div id="stopsWrap" class="stopsWrap"></div>
-      
-   <div style="margin-top:12px;"></div>
 
-    <div class="typeColliGrid">
-  <div class="fieldRow">
-    <label for="shipment_type">Type zending</label>
-    <select id="shipment_type">
-      <option value="doos">Doos</option>
-      <option value="enveloppe">Enveloppe</option>
-      <option value="pallet">Pallet</option>
-      <option value="overig">Overig</option>
-    </select>
-  </div>
+      <div style="margin-top:12px;"></div>
 
-  <div id="otherWrap" class="fieldRow" style="display:none">
-    <label for="shipment_type_other">Overig (invullen)</label>
-    <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
-  </div>
+      <!-- Type + Colli -->
+      <div class="typeColliGrid">
+        <div class="fieldRow">
+          <label for="shipment_type">Type zending</label>
+          <select id="shipment_type">
+            <option value="doos">Doos</option>
+            <option value="enveloppe">Enveloppe</option>
+            <option value="pallet">Pallet</option>
+            <option value="overig">Overig</option>
+          </select>
+        </div>
 
-  <div class="fieldRow">
-    <label for="colli_count">Aantal colli</label>
-    <input id="colli_count" type="number" min="1" value="1" />
-  </div>
-</div>
+        <div id="otherWrap" class="fieldRow" style="display:none">
+          <label for="shipment_type_other">Overig (invullen)</label>
+          <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+        </div>
+
+        <div class="fieldRow">
+          <label for="colli_count">Aantal colli</label>
+          <input id="colli_count" type="number" min="1" value="1" />
+        </div>
+      </div>
 
       <div style="align-self:flex-end">
         <button id="btnCreate" type="button">Aanmaken</button>
@@ -66,6 +67,8 @@
     </div>
 
     <p id="createMsg" class="small"></p>
+  </div>
+  <!-- /CREATE CARD -->
 
   <!-- LIST CARD -->
   <div class="card">
@@ -83,8 +86,9 @@
   <!-- Routeplanner -->
   <div class="card">
     <h2>Routeplanner</h2>
-    <div class="routeStatus">
-</div>
+
+    <!-- Status hoort DIRECT onder titel -->
+    <div id="routeStatus" class="routeStatus"></div>
 
     <div class="routeControls">
       <button id="btnPlanRoute" type="button">Plan optimale route</button>
@@ -93,8 +97,6 @@
         <input type="checkbox" id="autoRoute" checked />
         <span>Auto route</span>
       </label>
-
-      <small id="routeMsg" class="muted"></small>
     </div>
 
     <div id="routeList" class="routeList" style="margin-top:14px;"></div>
@@ -113,57 +115,62 @@
     <div id="map" style="height:360px;border-radius:12px;margin-top:10px;"></div>
   </div>
 
-<!-- Modal: Wijzigen zending -->
-<div id="editOverlay" class="modal-overlay" style="display:none;">
-  <div class="modal">
-    <h2>Zending wijzigen</h2>
+  <!-- Modal: Wijzigen zending -->
+  <div id="editOverlay" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <h2>Zending wijzigen</h2>
 
-    <p class="small" id="editShipmentInfo"></p>
+      <p class="small" id="editShipmentInfo"></p>
 
-    <label>Klantnaam</label>
-    <input id="editCustomer" />
+      <label>Klantnaam</label>
+      <input id="editCustomer" />
 
-    <div class="stopsHeader" style="margin-top:10px;">
-  <div><b>Stops</b></div>
-  <div class="stopsBtns">
-    <button id="btnEditAddPickup" type="button">+ Ophalen</button>
-    <button id="btnEditAddDelivery" type="button">+ Bezorgen</button>
-  </div>
-</div>
+      <div class="stopsHeader" style="margin-top:10px;">
+        <div><b>Stops</b></div>
+        <div class="stopsBtns">
+          <button id="btnEditAddPickup" type="button">+ Ophalen</button>
+          <button id="btnEditAddDelivery" type="button">+ Bezorgen</button>
+        </div>
+      </div>
 
-<small class="muted">Tip: begin te typen en kies een adres uit de lijst.</small>
+      <small class="muted">Tip: begin te typen en kies een adres uit de lijst.</small>
+      <div id="editStopsWrap" class="stopsWrap"></div>
 
-<div id="editStopsWrap" class="stopsWrap"></div>
+      <input id="editPickup" type="hidden" />
+      <input id="editDelivery" type="hidden" />
 
-<input id="editPickup" type="hidden" />
-<input id="editDelivery" type="hidden" />
+      <!-- Edit: eigen IDs (GEEN dubbele IDs meer) -->
+      <div class="typeColliGrid">
+        <div class="fieldRow">
+          <label for="edit_shipment_type">Type zending</label>
+          <select id="edit_shipment_type">
+            <option value="doos">Doos</option>
+            <option value="enveloppe">Enveloppe</option>
+            <option value="pallet">Pallet</option>
+            <option value="overig">Overig</option>
+          </select>
+        </div>
 
-    <div class="typeColliGrid">
-  <label for="shipment_type">Type zending</label>
-  <select id="shipment_type">
-    <option value="doos">Doos</option>
-    <option value="enveloppe">Enveloppe</option>
-    <option value="pallet">Pallet</option>
-    <option value="overig">Overig</option>
-  </select>
+        <div id="edit_otherWrap" class="fieldRow" style="display:none">
+          <label for="edit_shipment_type_other">Overig (invullen)</label>
+          <input id="edit_shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+        </div>
 
-  <div id="otherWrap" style="display:none">
-    <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
-  </div>
+        <div class="fieldRow">
+          <label for="edit_colli_count">Aantal colli</label>
+          <input id="edit_colli_count" type="number" min="1" value="1" />
+        </div>
+      </div>
 
-  <label for="colli_count">Aantal colli</label>
-  <input id="colli_count" type="number" min="1" value="1" />
-</div>
+      <p id="editError" class="small" style="color:#b00020;"></p>
 
-    <p id="editError" class="small" style="color:#b00020;"></p>
-
-    <div class="row" style="justify-content:flex-end;">
-      <button id="editCancel" type="button">Annuleren</button>
-      <button id="editSave" type="button">Opslaan</button>
+      <div class="row" style="justify-content:flex-end;">
+        <button id="editCancel" type="button">Annuleren</button>
+        <button id="editSave" type="button">Opslaan</button>
+      </div>
     </div>
   </div>
-</div>  
-  
+
   <!-- Modal: Afgeleverd + handtekening + fotos -->
   <div id="modalOverlay" class="modal-overlay" style="display:none;">
     <div class="modal">
@@ -207,19 +214,19 @@
   </div>
 
   <!-- Supabase -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-<!-- jsPDF (voor afleverbon PDF) -->
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <!-- jsPDF (voor afleverbon PDF) -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
-<!-- jouw config + dashboard -->
-<script src="/DVK/public/js/supabase-config.js?v=1"></script>
-<script src="/DVK/public/js/dashboard.js?v=1"></script>
+  <!-- jouw config + dashboard -->
+  <script src="/DVK/public/js/supabase-config.js?v=1"></script>
+  <script src="/DVK/public/js/dashboard.js?v=1"></script>
 
-<!-- Google Maps als laatste (MET callback=initMaps en libraries=places) -->
-<script
-  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDXE-jkOXsKxIdyXarrbBsA3ut_C3nvWMI&libraries=places&callback=initMaps"
-  async defer
-></script>
+  <!-- Google Maps als laatste -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDXE-jkOXsKxIdyXarrbBsA3ut_C3nvWMI&libraries=places&callback=initMaps"
+    async defer
+  ></script>
 </body>
 </html>
