@@ -135,22 +135,22 @@
 <input id="editPickup" type="hidden" />
 <input id="editDelivery" type="hidden" />
 
-    <div style="display:flex; gap:10px;">
-      <div style="flex:1;">
-        <label>Type zending</label>
-        <select id="editType">
-          <option value="doos">Doos</option>
-          <option value="enveloppe">Enveloppe</option>
-          <option value="pallet">Pallet</option>
-          <option value="overig">Overig</option>
-        </select>
-      </div>
+    <div class="typeColliStack">
+  <div>
+    <label>Type zending</label>
+    <select id="editType">
+      <option value="doos">Doos</option>
+      <option value="enveloppe">Enveloppe</option>
+      <option value="pallet">Pallet</option>
+      <option value="overig">Overig</option>
+    </select>
+  </div>
 
-      <div style="flex:1;">
-        <label>Aantal colli</label>
-        <input id="editColli" type="number" min="1" value="1" />
-      </div>
-    </div>
+  <div>
+    <label>Aantal colli</label>
+    <input id="editColli" type="number" min="1" value="1" />
+  </div>
+</div>
 
     <div id="editOtherWrap" style="display:none;">
       <label>Overig (invullen)</label>
