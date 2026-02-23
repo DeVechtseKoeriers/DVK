@@ -162,7 +162,6 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 stopRow{
   display:grid;
   grid-template-columns: 110px 520px auto 34px;
-  align-items:center;
 }
 
 .stopType{
