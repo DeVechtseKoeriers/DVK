@@ -1,19 +1,15 @@
-// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD (v3)
-// - Per-stop buttons:
-//   * Pickup stop: only "Opgehaald" + "Probleem"
-//   * Delivery stop: only "Afgeleverd" (opens proof modal) + "Probleem"
-// - Events written correctly per stop:
-//   * OPGEHAALD/AFGELEVERD/PROBLEEM with stop_index (created_at provides date/time for Track&Trace)
-// - Auto-archive when ALL deliveries are AFGELEVERD
-// - Aflever-PDF with logo + pickup/delivery times
-// - Business search in Places works (name + address)
-// - No duplicate initMaps, no parse errors
+// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD (v4)
+// Fixes:
+// - No queries with driver_id = null (prevents 400 + “keeps loading” feeling)
+// - Realtime refresh debounced + single subscription
+// - Edit modal IDs aligned (requires dashboard.html edit IDs fix)
+// - “Optimale volgorde” also reflected in Adressen list (sorted by last planned route order)
 
 (() => {
   "use strict";
 
   // ---------------- CONFIG
-  const LOGO_URL = "/DVK/assets/logo.png"; // zet je logo hier
+  const LOGO_URL = "/DVK/assets/logo.png";
   const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
 
   // ---------------- DOM
@@ -43,9 +39,9 @@
   const editOverlay = document.getElementById("editOverlay");
   const editShipmentInfo = document.getElementById("editShipmentInfo");
   const editCustomer = document.getElementById("editCustomer");
-  const editType      = document.getElementById("edit_shipment_type");
-  const editColli     = document.getElementById("edit_colli_count");
-  const editOtherWrap = document.getElementById("edit_otherWrap");
+  const editType = document.getElementById("edit_shipment_type");
+  const editColli = document.getElementById("edit_colli_count");
+  const editOtherWrapEl = document.getElementById("edit_otherWrap");
   const editTypeOther = document.getElementById("edit_shipment_type_other");
   const editError = document.getElementById("editError");
   const editCancel = document.getElementById("editCancel");
@@ -88,6 +84,10 @@
   let currentTab = "active";
   let currentUserId = null;
 
+  // Realtime
+  let realtimeSubscribed = false;
+  let realtimeTimer = null;
+
   // For proof modal
   let currentDeliveryShipment = null;
   let currentDeliveryStopIndex = null;
@@ -96,6 +96,10 @@
 
   let activeShipmentsCache = [];
   window.activeShipmentsCache = activeShipmentsCache;
+
+  // Last planned route order (used to sort “Adressen”)
+  // key = `${shipmentId}_${stopIndex}` => rank (1..n)
+  let lastRouteRank = new Map();
 
   // ---------------- Helpers
   function msg(t) { if (createMsg) createMsg.textContent = t || ""; }
@@ -234,22 +238,19 @@
     });
   }
 
-  // ---------------- Type “overig”
+  // ---------------- Type “overig” (CREATE)
   if (shipmentTypeEl && otherWrap) {
     shipmentTypeEl.addEventListener("change", () => {
       otherWrap.style.display = shipmentTypeEl.value === "overig" ? "block" : "none";
     });
   }
 
-  // ----------------- Type "overig" (EDIT MODAL)
-const editShipmentTypeEl = document.getElementById("edit_shipment_type");
-const editOtherWrap = document.getElementById("edit_otherWrap");
-
-if (editShipmentTypeEl && editOtherWrap) {
-  editShipmentTypeEl.addEventListener("change", () => {
-    editOtherWrap.style.display = editShipmentTypeEl.value === "overig" ? "block" : "none";
-  });
-}
+  // ---------------- Type “overig” (EDIT)
+  function toggleEditOther() {
+    if (!editType || !editOtherWrapEl) return;
+    editOtherWrapEl.style.display = editType.value === "overig" ? "block" : "none";
+  }
+  if (editType) editType.addEventListener("change", toggleEditOther);
 
   // ---------------- Google Places attach (bedrijven + adressen)
   function attachPlacesToInput(inputEl) {
@@ -260,7 +261,6 @@ if (editShipmentTypeEl && editOtherWrap) {
 
       const ac = new google.maps.places.Autocomplete(inputEl, {
         fields: ["formatted_address", "name", "place_id"],
-        // GEEN types filter -> bedrijven + adressen
       });
 
       ac.addListener("place_changed", () => {
@@ -305,15 +305,14 @@ if (editShipmentTypeEl && editOtherWrap) {
 
     row.querySelector(".stopRemove").addEventListener("click", () => {
       row.remove();
-      if (window.__dvkMaybeAutoRecalcRoute) window.__dvkMaybeAutoRecalcRoute();
+      window.__dvkMaybeAutoRecalcRoute?.();
     });
 
     return row;
   }
 
   function ensureDefaultStops() {
-    if (!hasStopsUI()) return;
-    if (!stopsWrap) return;
+    if (!hasStopsUI() || !stopsWrap) return;
     if (stopsWrap.querySelectorAll(".stopRow").length > 0) return;
 
     stopsWrap.appendChild(stopRowTemplate({ type: "pickup" }));
@@ -368,6 +367,7 @@ if (editShipmentTypeEl && editOtherWrap) {
 
   // ---------------- Update shipment row
   async function updateShipmentRow(shipmentId, patch) {
+    if (!currentUserId) throw new Error("currentUserId ontbreekt");
     const supabaseClient = await ensureClient();
     const { error } = await supabaseClient
       .from("shipments")
@@ -378,7 +378,7 @@ if (editShipmentTypeEl && editOtherWrap) {
     if (error) throw error;
   }
 
-  // ---------------- AUTO ARCHIVE (when all deliveries delivered)
+  // ---------------- AUTO ARCHIVE
   async function autoArchiveIfCompleted(shipmentId, stops) {
     const deliveries = (stops || []).filter(s => s.type === "delivery");
     const allDelivered = deliveries.length && deliveries.every(s => s.status === "AFGELEVERD");
@@ -418,7 +418,7 @@ if (editShipmentTypeEl && editOtherWrap) {
     await loadShipments(currentUserId);
   }
 
-  // ---------------- Delivered modal (signature + photos) — PER DELIVERY STOP
+  // ---------------- Delivered modal (signature + photos)
   let drawing = false;
   let hasSignature = false;
   let last = null;
@@ -594,7 +594,6 @@ if (editShipmentTypeEl && editOtherWrap) {
         if (!stops[currentDeliveryStopIndex]) throw new Error("Stop bestaat niet (index mismatch).");
         if (stops[currentDeliveryStopIndex].type !== "delivery") throw new Error("Aflever-modal alleen voor bezorgadressen.");
 
-        // update stop
         stops[currentDeliveryStopIndex] = {
           ...stops[currentDeliveryStopIndex],
           status: "AFGELEVERD",
@@ -613,7 +612,6 @@ if (editShipmentTypeEl && editOtherWrap) {
           delivery_prio: legacy.delivery_prio,
         });
 
-        // ✅ CORRECT EVENT: AFGELEVERD (not overall)
         try {
           const st = stops[currentDeliveryStopIndex];
           await addEvent(
@@ -644,11 +642,9 @@ if (editShipmentTypeEl && editOtherWrap) {
 
     const st0 = stops[stopIndex];
 
-    // Enforce rules:
     if (st0.type === "pickup") {
       if (!["OPGEHAALD", "PROBLEEM"].includes(newStatus)) return;
     } else {
-      // delivery: AFGELEVERD goes via modal
       if (!["PROBLEEM"].includes(newStatus)) return;
     }
 
@@ -673,7 +669,6 @@ if (editShipmentTypeEl && editOtherWrap) {
       ...(newStatus === "PROBLEEM" && note ? { problem_note: note } : {}),
     });
 
-    // ✅ CORRECT EVENT: use newStatus (not overall)
     try {
       const addr = st0.address;
       const label = st0.type === "pickup" ? "Ophalen" : "Bezorgen";
@@ -690,12 +685,6 @@ if (editShipmentTypeEl && editOtherWrap) {
   }
 
   // ---------------- Edit modal (stops)
-  function toggleEditOther() {
-    if (!editType || !editOtherWrap) return;
-    editOtherWrap.style.display = editType.value === "overig" ? "block" : "none";
-  }
-  if (editType) editType.addEventListener("change", toggleEditOther);
-
   function addEditStopRow(type, address = "", prio = false) {
     if (!editStopsWrap) return;
 
@@ -1037,46 +1026,42 @@ if (editShipmentTypeEl && editOtherWrap) {
       });
     }
 
-    y += 10;
-    doc.setFont("helvetica", "bold");
-    doc.text("Tijdpad:", 40, y); y += 14;
-    doc.setFont("helvetica", "normal");
-
-    try {
-      const supabaseClient = await ensureClient();
-      const { data } = await supabaseClient
-        .from("shipment_events")
-        .select("created_at,event_type,note,stop_index")
-        .eq("shipment_id", shipment.id)
-        .order("created_at", { ascending: true });
-
-      const events = data || [];
-      if (!events.length) {
-        doc.text("—", 40, y); y += 14;
-      } else {
-        events.forEach((ev) => {
-          const dt = ev.created_at ? fmtDT(ev.created_at) : "";
-          const si = (ev.stop_index === 0 || ev.stop_index) ? ` (stop ${Number(ev.stop_index) + 1})` : "";
-          const line = `${dt} — ${labelStatus(ev.event_type)}${si}${ev.note ? " — " + ev.note : ""}`;
-          const split = doc.splitTextToSize(line, 520);
-          doc.text(split, 40, y);
-          y += 14 * split.length;
-          if (y > 780) { doc.addPage(); y = 42; }
-        });
-      }
-    } catch {
-      doc.text("(Geen events beschikbaar)", 40, y);
-    }
-
     doc.save(`Afleverbon-${shipment.track_code}.pdf`);
   }
 
-  // ---------------- Per-address status UI (ALWAYS)
+  // ---------------- Per-address status UI (SORTED by last planned route if available)
+  function getStopsSortedByRoute(shipment) {
+    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+    if (!lastRouteRank || lastRouteRank.size === 0) return stops;
+
+    // map original index
+    const withMeta = stops.map((st, idx) => {
+      const key = `${shipment.id}_${idx}`;
+      const rank = lastRouteRank.get(key);
+      return { st, idx, rank };
+    });
+
+    const anyRanked = withMeta.some(x => Number.isFinite(x.rank));
+    if (!anyRanked) return stops;
+
+    // ranked first, then unranked keep original
+    withMeta.sort((a, b) => {
+      const ar = Number.isFinite(a.rank) ? a.rank : 999999;
+      const br = Number.isFinite(b.rank) ? b.rank : 999999;
+      if (ar !== br) return ar - br;
+      return a.idx - b.idx;
+    });
+
+    // return stops in sorted order but we still need original stopIndex for updates:
+    // we keep original index as _origIndex on stop object
+    return withMeta.map(x => ({ ...x.st, _origIndex: x.idx }));
+  }
+
   function renderStopStatusUI(shipment) {
     const wrap = document.createElement("div");
     wrap.className = "stopStatusWrap";
 
-    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+    const sortedStops = getStopsSortedByRoute(shipment);
 
     const title = document.createElement("div");
     title.style.fontWeight = "700";
@@ -1084,7 +1069,10 @@ if (editShipmentTypeEl && editOtherWrap) {
     title.textContent = "Adressen:";
     wrap.appendChild(title);
 
-    stops.forEach((st, idx) => {
+    sortedStops.forEach((st, displayIdx) => {
+      // IMPORTANT: update buttons must use original index
+      const realIdx = (typeof st._origIndex === "number") ? st._origIndex : displayIdx;
+
       const row = document.createElement("div");
       row.className = "stopStatusRow";
 
@@ -1099,7 +1087,7 @@ if (editShipmentTypeEl && editOtherWrap) {
 
       row.innerHTML = `
         <div class="small" style="flex:1;">
-          <b>${idx + 1}. ${escapeHtml(tag)}:</b> ${escapeHtml(st.address)}${prio}<br/>
+          <b>${displayIdx + 1}. ${escapeHtml(tag)}:</b> ${escapeHtml(st.address)}${prio}<br/>
           <span class="small">Huidig: <b>${escapeHtml(cur)}</b> • ${timeLine}</span>
         </div>
       `;
@@ -1109,24 +1097,24 @@ if (editShipmentTypeEl && editOtherWrap) {
 
       if (st.type === "pickup") {
         btns.appendChild(
-          mkBtn("Opgehaald", () => updateStopStatus(shipment, idx, "OPGEHAALD"), statusBtnClass(st.status, "OPGEHAALD"))
+          mkBtn("Opgehaald", () => updateStopStatus(shipment, realIdx, "OPGEHAALD"), statusBtnClass(st.status, "OPGEHAALD"))
         );
         btns.appendChild(
           mkBtn("Probleem", async () => {
             const note = prompt("Wat is het probleem?");
             if (!note) return;
-            await updateStopStatus(shipment, idx, "PROBLEEM", note);
+            await updateStopStatus(shipment, realIdx, "PROBLEEM", note);
           }, statusBtnClass(st.status, "PROBLEEM"))
         );
       } else {
         btns.appendChild(
-          mkBtn("Afgeleverd", () => openDeliveredModal(shipment, idx), statusBtnClass(st.status, "AFGELEVERD"))
+          mkBtn("Afgeleverd", () => openDeliveredModal(shipment, realIdx), statusBtnClass(st.status, "AFGELEVERD"))
         );
         btns.appendChild(
           mkBtn("Probleem", async () => {
             const note = prompt("Wat is het probleem?");
             if (!note) return;
-            await updateStopStatus(shipment, idx, "PROBLEEM", note);
+            await updateStopStatus(shipment, realIdx, "PROBLEEM", note);
           }, statusBtnClass(st.status, "PROBLEEM"))
         );
       }
@@ -1186,8 +1174,13 @@ if (editShipmentTypeEl && editOtherWrap) {
     return div;
   }
 
-  // ---------------- Load shipments
+  // ---------------- Load shipments (GUARD driverId)
   async function loadShipments(driverId) {
+    if (!driverId) {
+      // voorkomt driver_id=eq.null + 400 spam
+      return;
+    }
+
     const supabaseClient = await ensureClient();
 
     if (listEl) listEl.innerHTML = "Laden...";
@@ -1292,6 +1285,7 @@ if (editShipmentTypeEl && editOtherWrap) {
         out.push({
           id: `${sh.id}_${idx}`,
           shipmentId: sh.id,
+          stopIndex: idx,
           type: st.type,
           address: st.address,
           prio: !!st.prio,
@@ -1383,14 +1377,6 @@ if (editShipmentTypeEl && editOtherWrap) {
       currentIndex = idxOfStop(best);
     }
 
-    if (ordered.length && ordered[ordered.length - 1].type !== "delivery") {
-      const lastDeliveryIdx = [...ordered].map((s, i) => ({ s, i })).reverse().find((x) => x.s.type === "delivery")?.i;
-      if (lastDeliveryIdx != null) {
-        const d = ordered.splice(lastDeliveryIdx, 1)[0];
-        ordered.push(d);
-      }
-    }
-
     return ordered;
   }
 
@@ -1447,14 +1433,25 @@ if (editShipmentTypeEl && editOtherWrap) {
         routeMsg("Geen actieve zendingen voor routeplanning.");
         if (directionsRenderer) directionsRenderer.set("directions", null);
         if (routeSummaryEl) routeSummaryEl.innerHTML = `Totale afstand: – &nbsp;&nbsp;&nbsp; Totale reistijd: –`;
+        lastRouteRank = new Map();
         return;
       }
 
       const ordered = await computeOrderedStopsGreedy(stops);
       renderRouteList(ordered);
 
+      // Save rank map so “Adressen” can follow route order
+      const rank = new Map();
+      ordered.forEach((s, i) => {
+        rank.set(`${s.shipmentId}_${s.stopIndex}`, i + 1);
+      });
+      lastRouteRank = rank;
+
       const res = await drawRouteOnMap(ordered);
       setRouteSummaryFromDirections(res);
+
+      // Re-render current tab so Adressen order updates
+      await loadShipments(currentUserId);
 
       routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
     } catch (e) {
@@ -1495,25 +1492,31 @@ if (editShipmentTypeEl && editOtherWrap) {
       setTab("active");
       await loadShipments(currentUserId);
 
-      // Optional realtime refresh
-      try {
-        const supabaseClient = await ensureClient();
+      // Optional realtime refresh (debounced, single subscription)
+      if (!realtimeSubscribed) {
+        realtimeSubscribed = true;
+        try {
+          const supabaseClient = await ensureClient();
 
-        supabaseClient
-          .channel("shipments_changes")
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "shipments",
-              filter: `driver_id=eq.${currentUserId}`,
-            },
-            () => loadShipments(currentUserId)
-          )
-          .subscribe();
-      } catch (e) {
-        console.warn("Realtime subscribe skipped:", e);
+          supabaseClient
+            .channel("shipments_changes")
+            .on(
+              "postgres_changes",
+              {
+                event: "*",
+                schema: "public",
+                table: "shipments",
+                filter: `driver_id=eq.${currentUserId}`,
+              },
+              () => {
+                clearTimeout(realtimeTimer);
+                realtimeTimer = setTimeout(() => loadShipments(currentUserId), 400);
+              }
+            )
+            .subscribe();
+        } catch (e) {
+          console.warn("Realtime subscribe skipped:", e);
+        }
       }
     } catch (e) {
       console.error("INIT error:", e);
