@@ -237,17 +237,16 @@ button.statusBtn.isActive {
   box-shadow: 0 0 0 2px rgba(22,163,74,.25);
 }
 
-/* Type zending & Aantal colli onder elkaar */
+/* Type zending & Aantal colli zelfde breedte als adresvelden */
 .typeColliStack{
   display:grid;
   grid-template-columns: 1fr;
   gap:12px;
-  max-width:520px;   
+  width:100%;
 }
 
 .typeColliStack select,
 .typeColliStack input{
   width:100%;
   box-sizing:border-box;
-  height:38px;
 }
