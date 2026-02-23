@@ -1482,57 +1482,59 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     }
   };
 
-  // ---------------- INIT
-  ;(async () => {
-    try {
-      const user = await requireAuth();
-      currentUserId = user.id;
+  // ---------------- INIT ----------------
+;(async () => {
+  try {
+    const user = await requireAuth();
 
-      ensureDefaultStops();
-      setTab("active");
-      await loadShipments(currentUserId);
-
-      // Optional realtime refresh (anti-loop + debounce)
-try {
-  const supabaseClient = await ensureClient();
-
-  // ✅ Zorg dat er maar 1 channel actief is (ook bij hot reload / dubbele script load)
-  if (window.__dvkShipmentsChannel) {
-    try { supabaseClient.removeChannel(window.__dvkShipmentsChannel); } catch {}
-    window.__dvkShipmentsChannel = null;
-  }
-
-  // ✅ Debounce zodat hij niet elke change meteen opnieuw laadt
-  let rtTimer = null;
-  const scheduleReload = () => {
-    clearTimeout(rtTimer);
-    rtTimer = setTimeout(() => loadShipments(currentUserId), 600);
-  };
-
-  window.__dvkShipmentsChannel = supabaseClient
-    .channel("shipments_changes")
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "shipments",
-        filter: `driver_id=eq.${currentUserId}`,
-      },
-      () => scheduleReload()
-    )
-    .subscribe((status) => {
-      // Handig om te zien of hij steeds reconnect
-      // console.log("Realtime status:", status);
-    });
-
-} catch (e) {
-  console.warn("Realtime subscribe skipped:", e);
-}
-      
-    } catch (e) {
-      console.error("INIT error:", e);
-      msg("Init fout: " + (e?.message || e));
+    if (!user || !user.id) {
+      console.error("Geen geldige gebruiker gevonden.");
+      return;
     }
-  })();
+
+    currentUserId = user.id;
+
+    ensureDefaultStops();
+    setTab("active");
+
+    await loadShipments(currentUserId);
+
+    // -------- Realtime (anti-loop + debounce) --------
+    try {
+      const supabaseClient = await ensureClient();
+
+      if (window.__dvkShipmentsChannel) {
+        try { await supabaseClient.removeChannel(window.__dvkShipmentsChannel); } catch {}
+        window.__dvkShipmentsChannel = null;
+      }
+
+      let rtTimer = null;
+      const scheduleReload = () => {
+        clearTimeout(rtTimer);
+        rtTimer = setTimeout(() => {
+          if (currentUserId) loadShipments(currentUserId);
+        }, 700);
+      };
+
+      window.__dvkShipmentsChannel = supabaseClient
+        .channel("shipments_changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "shipments",
+            filter: `driver_id=eq.${currentUserId}`,
+          },
+          () => scheduleReload()
+        )
+        .subscribe();
+
+    } catch (e) {
+      console.warn("Realtime subscribe skipped:", e);
+    }
+
+  } catch (e) {
+    console.error("INIT error:", e);
+  }
 })();
