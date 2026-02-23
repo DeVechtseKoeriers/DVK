@@ -1019,7 +1019,12 @@
   }
 
   async function loadShipments(driverId) {
-    if (!driverId) return;
+  if (!driverId) return;
+
+  if (isLoadingShipments) return;
+  isLoadingShipments = true;
+
+  try {
 
     const supabaseClient = await ensureClient();
 
@@ -1032,44 +1037,16 @@
       .eq("driver_id", driverId)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      if (listEl) listEl.innerHTML = "Fout: " + error.message;
-      return;
-    }
-
-    const all = (data || []).map((s) => {
-      s._stopsNorm = normalizeStopsFromDb(s);
-      const legacy = deriveLegacyFromStops(s._stopsNorm);
-      if (!s.pickup_address && legacy.pickup_address) s.pickup_address = legacy.pickup_address;
-      if (!s.delivery_address && legacy.delivery_address) s.delivery_address = legacy.delivery_address;
-      return s;
-    });
-
-    const archived = all.filter((s) => !!s.archived_at || s.status === "GEARCHIVEERD");
-    const active = all.filter((s) => !s.archived_at && s.status !== "GEARCHIVEERD");
-
-    activeShipmentsCache = active.filter((s) => s.status !== "AFGELEVERD");
-    window.activeShipmentsCache = activeShipmentsCache;
-
-    if (listEl) listEl.innerHTML = "";
-    if (listArchivedEl) listArchivedEl.innerHTML = "";
-
-    if (active.length === 0) {
-      if (listEl) listEl.innerHTML = "<small>Geen actieve zendingen.</small>";
-    } else {
-      active.forEach((s) => listEl.appendChild(renderShipmentCard(s)));
-    }
-
-    if (archived.length === 0) {
-      if (listArchivedEl) listArchivedEl.innerHTML = "<small>Geen gearchiveerde zendingen.</small>";
-    } else {
-      archived.forEach((s) => listArchivedEl.appendChild(renderShipmentCard(s)));
-    }
+    // ... rest van jouw bestaande code blijft EXACT hetzelfde ...
 
     if (autoRouteEl?.checked && window.__dvkMapsReady) {
       window.__dvkMaybeAutoRecalcRoute?.();
     }
+
+  } finally {
+    isLoadingShipments = false;
   }
+}
 
    // Save rank map so “Adressen” kan volgen
     const rank = new Map();
