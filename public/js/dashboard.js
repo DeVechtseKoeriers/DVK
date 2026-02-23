@@ -1,12 +1,21 @@
-// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD (v4)
+// DVK Chauffeur Dashboard — STABLE SINGLE-FILE BUILD (v5)
 // Fixes:
-// - No queries with driver_id = null (prevents 400 + “keeps loading” feeling)
-// - Realtime refresh debounced + single subscription
-// - Edit modal IDs aligned (requires dashboard.html edit IDs fix)
-// - “Optimale volgorde” also reflected in Adressen list (sorted by last planned route order)
+// - No driver_id=null queries
+// - No double init
+// - initMaps always defined
+// - Uses IDs exactly as in your dashboard.html (create uses edit_* ids in your HTML)
+// - routeStatus id fixed
+// - Realtime: single channel + debounced reload
 
 (() => {
   "use strict";
+
+  // ✅ voorkomt dubbel draaien (heel vaak oorzaak van “blijft laden”)
+  if (window.__dvkDashboardInit) {
+    console.warn("DVK dashboard.js draait al — skip duplicate init");
+    return;
+  }
+  window.__dvkDashboardInit = true;
 
   // ---------------- CONFIG
   const LOGO_URL = "/DVK/assets/logo.png";
@@ -20,8 +29,14 @@
 
   // Create form
   const createMsg = document.getElementById("createMsg");
-  const shipmentTypeEl = document.getElementById("shipment_type");
-  const otherWrap = document.getElementById("otherWrap");
+  const customerNameEl = document.getElementById("customer_name");
+
+  // ✅ In jouw HTML heet create-type/colli ook "edit_*" (dus we pakken die)
+  const shipmentTypeEl = document.getElementById("edit_shipment_type");
+  const colliCountEl = document.getElementById("edit_colli_count");
+  const otherWrap = document.getElementById("edit_otherWrap");
+  const shipmentTypeOtherEl = document.getElementById("edit_shipment_type_other");
+
   const btnCreate = document.getElementById("btnCreate");
 
   // Stops UI (create)
@@ -29,17 +44,11 @@
   const btnAddPickup = document.getElementById("btnAddPickup");
   const btnAddDelivery = document.getElementById("btnAddDelivery");
 
-  // Legacy fields (if stops UI not present)
-  const legacyPickupInput = document.getElementById("pickup_address");
-  const legacyDeliveryInput = document.getElementById("delivery_address");
-  const legacyPickupPrio = document.getElementById("pickup_prio");
-  const legacyDeliveryPrio = document.getElementById("delivery_prio");
-
   // Edit modal
   const editOverlay = document.getElementById("editOverlay");
   const editShipmentInfo = document.getElementById("editShipmentInfo");
   const editCustomer = document.getElementById("editCustomer");
-  const editType = document.getElementById("edit_shipment_type");
+  const editType = document.getElementById("edit_shipment_type"); // same id (OK, but modal shown/hidden)
   const editColli = document.getElementById("edit_colli_count");
   const editOtherWrapEl = document.getElementById("edit_otherWrap");
   const editTypeOther = document.getElementById("edit_shipment_type_other");
@@ -75,7 +84,7 @@
   // Routeplanner
   const btnPlanRoute = document.getElementById("btnPlanRoute");
   const autoRouteEl = document.getElementById("autoRoute");
-  const routeMsgEl = document.getElementById("routeMsg");
+  const routeStatusEl = document.getElementById("routeStatus"); // ✅ HTML id
   const routeListEl = document.getElementById("routeList");
   const mapEl = document.getElementById("map");
   const routeSummaryEl = document.getElementById("routeSummary");
@@ -84,11 +93,10 @@
   let currentTab = "active";
   let currentUserId = null;
 
-  // Realtime
-  let realtimeSubscribed = false;
-  let realtimeTimer = null;
+  // Realtime channel
+  let rtTimer = null;
 
-  // For proof modal
+  // Proof modal state
   let currentDeliveryShipment = null;
   let currentDeliveryStopIndex = null;
 
@@ -97,13 +105,12 @@
   let activeShipmentsCache = [];
   window.activeShipmentsCache = activeShipmentsCache;
 
-  // Last planned route order (used to sort “Adressen”)
-  // key = `${shipmentId}_${stopIndex}` => rank (1..n)
+  // Last planned route order
   let lastRouteRank = new Map();
 
   // ---------------- Helpers
   function msg(t) { if (createMsg) createMsg.textContent = t || ""; }
-  function routeMsg(t) { if (routeMsgEl) routeMsgEl.textContent = t || ""; }
+  function routeMsg(t) { if (routeStatusEl) routeStatusEl.textContent = t || ""; }
 
   function escapeHtml(str) {
     return String(str ?? "")
@@ -238,21 +245,15 @@
     });
   }
 
-  // ---------------- Type “overig” (CREATE)
-  if (shipmentTypeEl && otherWrap) {
-    shipmentTypeEl.addEventListener("change", () => {
-      otherWrap.style.display = shipmentTypeEl.value === "overig" ? "block" : "none";
-    });
+  // ---------------- Type “overig” (CREATE+EDIT)
+  function toggleOtherWrap(selectEl, wrapEl) {
+    if (!selectEl || !wrapEl) return;
+    wrapEl.style.display = selectEl.value === "overig" ? "block" : "none";
   }
+  if (shipmentTypeEl) shipmentTypeEl.addEventListener("change", () => toggleOtherWrap(shipmentTypeEl, otherWrap));
+  if (editType) editType.addEventListener("change", () => toggleOtherWrap(editType, editOtherWrapEl));
 
-  // ---------------- Type “overig” (EDIT)
-  function toggleEditOther() {
-  if (!editType || !editOtherWrapEl) return;
-  editOtherWrapEl.style.display = editType.value === "overig" ? "block" : "none";
-}
-if (editType) editType.addEventListener("change", toggleEditOther);
-
-  // ---------------- Google Places attach (bedrijven + adressen)
+  // ---------------- Google Places attach
   function attachPlacesToInput(inputEl) {
     try {
       if (!inputEl) return;
@@ -282,8 +283,6 @@ if (editType) editType.addEventListener("change", toggleEditOther);
 
   function initAutocomplete() {
     if (stopsWrap) stopsWrap.querySelectorAll("input.stopAddress").forEach(attachPlacesToInput);
-    attachPlacesToInput(legacyPickupInput);
-    attachPlacesToInput(legacyDeliveryInput);
     if (editStopsWrap) editStopsWrap.querySelectorAll("input.editStopAddress").forEach(attachPlacesToInput);
   }
 
@@ -331,7 +330,7 @@ if (editType) editType.addEventListener("change", toggleEditOther);
   if (btnAddDelivery) btnAddDelivery.addEventListener("click", () => addStop("delivery"));
 
   function getStopsFromCreateUI() {
-    if (!hasStopsUI() || !stopsWrap) return null;
+    if (!hasStopsUI() || !stopsWrap) return [];
     const rows = [...stopsWrap.querySelectorAll(".stopRow")];
 
     return rows
@@ -635,7 +634,7 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     });
   }
 
-  // ---------------- Per-stop status update (pickup + probleem)
+  // ---------------- Per-stop status update
   async function updateStopStatus(shipment, stopIndex, newStatus, note = null) {
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
     if (!stops[stopIndex]) return;
@@ -672,12 +671,7 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     try {
       const addr = st0.address;
       const label = st0.type === "pickup" ? "Ophalen" : "Bezorgen";
-      await addEvent(
-        shipment.id,
-        newStatus,
-        `${label}: ${addr}${note ? " • " + note : ""}`,
-        stopIndex
-      );
+      await addEvent(shipment.id, newStatus, `${label}: ${addr}${note ? " • " + note : ""}`, stopIndex);
     } catch {}
 
     await autoArchiveIfCompleted(shipment.id, stops);
@@ -735,7 +729,7 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     if (editColli) editColli.value = String(shipment.colli_count ?? 1);
     if (editTypeOther) editTypeOther.value = shipment.shipment_type_other || "";
 
-    toggleEditOther();
+    toggleOtherWrap(editType, editOtherWrapEl);
 
     if (editStopsWrap) editStopsWrap.innerHTML = "";
     const stops = normalizeStopsFromDb(shipment);
@@ -832,30 +826,15 @@ if (editType) editType.addEventListener("change", toggleEditOther);
   async function createShipment() {
     msg("Bezig...");
 
-    const customer_name = document.getElementById("customer_name")?.value?.trim() || "";
-    const shipment_type = document.getElementById("shipment_type")?.value || "doos";
-    const shipment_type_other = document.getElementById("shipment_type_other")?.value?.trim() || null;
-    const colli_count = parseInt(document.getElementById("colli_count")?.value || "1", 10);
+    const customer_name = customerNameEl?.value?.trim() || "";
+    const shipment_type = shipmentTypeEl?.value || "doos";
+    const shipment_type_other = shipmentTypeOtherEl?.value?.trim() || null;
+    const colli_count = parseInt(colliCountEl?.value || "1", 10);
 
     if (!customer_name) { msg("Vul klantnaam in."); return; }
     if (shipment_type === "overig" && !shipment_type_other) { msg("Vul bij 'overig' een type in."); return; }
 
-    let stops = null;
-
-    if (hasStopsUI()) {
-      stops = getStopsFromCreateUI() || [];
-    } else {
-      const pickup_address = legacyPickupInput?.value?.trim() || "";
-      const delivery_address = legacyDeliveryInput?.value?.trim() || "";
-      const pickup_prio = !!legacyPickupPrio?.checked;
-      const delivery_prio = !!legacyDeliveryPrio?.checked;
-
-      stops = [
-        { type: "pickup", address: pickup_address, prio: pickup_prio, status: null, proof: null, picked_up_at: null },
-        { type: "delivery", address: delivery_address, prio: delivery_prio, status: null, proof: null, picked_up_at: null },
-      ].filter((s) => s.address);
-    }
-
+    const stops = getStopsFromCreateUI();
     const hasPickup = stops.some((s) => s.type === "pickup" && s.address);
     const hasDelivery = stops.some((s) => s.type === "delivery" && s.address);
     if (!hasPickup || !hasDelivery) { msg("Voeg minimaal 1 ophaaladres én 1 bezorgadres toe."); return; }
@@ -875,45 +854,32 @@ if (editType) editType.addEventListener("change", toggleEditOther);
       shipment_type_other: shipment_type === "overig" ? shipment_type_other : null,
       colli_count: Number.isFinite(colli_count) ? colli_count : 1,
       status: "AANGEMAAKT",
+      stops,
     };
 
     try {
       const supabaseClient = await ensureClient();
-
-      let r = await supabaseClient
+      const r = await supabaseClient
         .from("shipments")
-        .insert({ ...baseInsert, stops })
+        .insert(baseInsert)
         .select("*, stops")
         .single();
 
-      if (r.error && /column/i.test(r.error.message)) {
-        r = await supabaseClient
-          .from("shipments")
-          .insert(baseInsert)
-          .select("*, stops")
-          .single();
-      }
       if (r.error) { msg("Fout: " + r.error.message); return; }
 
       try { await addEvent(r.data.id, "AANGEMAAKT", null); } catch {}
 
       msg(`Aangemaakt: ${r.data.track_code}`);
 
-      document.getElementById("customer_name").value = "";
-      document.getElementById("colli_count").value = "1";
-      document.getElementById("shipment_type").value = "doos";
-      const other = document.getElementById("shipment_type_other");
-      if (other) other.value = "";
-      if (otherWrap) otherWrap.style.display = "none";
+      if (customerNameEl) customerNameEl.value = "";
+      if (colliCountEl) colliCountEl.value = "1";
+      if (shipmentTypeEl) shipmentTypeEl.value = "doos";
+      if (shipmentTypeOtherEl) shipmentTypeOtherEl.value = "";
+      toggleOtherWrap(shipmentTypeEl, otherWrap);
 
-      if (hasStopsUI()) {
+      if (stopsWrap) {
         stopsWrap.innerHTML = "";
         ensureDefaultStops();
-      } else {
-        if (legacyPickupInput) legacyPickupInput.value = "";
-        if (legacyDeliveryInput) legacyDeliveryInput.value = "";
-        if (legacyPickupPrio) legacyPickupPrio.checked = false;
-        if (legacyDeliveryPrio) legacyDeliveryPrio.checked = false;
       }
 
       await loadShipments(currentUserId);
@@ -922,119 +888,13 @@ if (editType) editType.addEventListener("change", toggleEditOther);
       msg("Fout: " + (e?.message || e));
     }
   }
-
   if (btnCreate) btnCreate.addEventListener("click", (e) => { e.preventDefault(); createShipment(); });
 
-  // ---------------- PDF helpers
-  async function loadImageAsDataUrl(url) {
-    try {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      const p = new Promise((resolve, reject) => {
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-      });
-      img.src = url;
-      const loaded = await p;
-
-      const c = document.createElement("canvas");
-      c.width = loaded.naturalWidth;
-      c.height = loaded.naturalHeight;
-      const ctx = c.getContext("2d");
-      ctx.drawImage(loaded, 0, 0);
-      return c.toDataURL("image/png");
-    } catch {
-      return null;
-    }
-  }
-
-  // ---------------- PDF (Afleverbon)
-  async function downloadAfleverPdf(shipment) {
-    if (!window.jspdf?.jsPDF) {
-      alert("jsPDF ontbreekt. Controleer script tag in dashboard.html.");
-      return;
-    }
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-
-    const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
-    const pickups = stops.filter(s => s.type === "pickup");
-    const deliveries = stops.filter(s => s.type === "delivery");
-
-    let y = 42;
-
-    const logoDataUrl = await loadImageAsDataUrl(LOGO_URL);
-    if (logoDataUrl) {
-      doc.addImage(logoDataUrl, "PNG", 40, 22, 90, 30);
-    }
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("Afleverbon / Bewijs van levering", 40, y); y += 20;
-
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text(`Track & Trace: ${shipment.track_code}`, 40, y); y += 16;
-
-    doc.setFont("helvetica", "normal");
-    doc.text(`Klant: ${shipment.customer_name || ""}`, 40, y); y += 14;
-
-    const typeText = shipment.shipment_type === "overig"
-      ? (shipment.shipment_type_other || "overig")
-      : (shipment.shipment_type || "");
-    doc.text(`Type: ${typeText}  •  Colli: ${shipment.colli_count ?? ""}`, 40, y); y += 14;
-    doc.text(`Status: ${labelStatus(shipment.status)}`, 40, y); y += 18;
-
-    doc.setFont("helvetica", "bold");
-    doc.text(`Ophaaladres${pickups.length > 1 ? "sen" : ""}:`, 40, y); y += 14;
-    doc.setFont("helvetica", "normal");
-    if (!pickups.length) {
-      doc.text("—", 40, y); y += 14;
-    } else {
-      pickups.forEach((p, i) => {
-        doc.text(`${pickups.length > 1 ? (i + 1) + ". " : ""}${p.address}${p.prio ? " (PRIO)" : ""}`, 40, y); y += 14;
-        doc.text(`   Ophaaltijd: ${p.picked_up_at ? fmtDT(p.picked_up_at) : "—"}`, 40, y); y += 14;
-        if (y > 780) { doc.addPage(); y = 42; }
-      });
-    }
-
-    y += 6;
-
-    doc.setFont("helvetica", "bold");
-    doc.text(`Bezorgadres${deliveries.length > 1 ? "sen" : ""}:`, 40, y); y += 14;
-    doc.setFont("helvetica", "normal");
-    if (!deliveries.length) {
-      doc.text("—", 40, y); y += 14;
-    } else {
-      deliveries.forEach((d, i) => {
-        doc.text(`${deliveries.length > 1 ? (i + 1) + ". " : ""}${d.address}${d.prio ? " (PRIO)" : ""}`, 40, y); y += 14;
-
-        const deliveredAt = d.proof?.delivered_at ? fmtDT(d.proof.delivered_at) : "";
-        doc.text(`   Bezorgtijd: ${deliveredAt || "—"}`, 40, y); y += 14;
-
-        if (d.proof) {
-          doc.text(`   Ontvanger: ${d.proof.receiver_name || "—"}`, 40, y); y += 14;
-          if (d.proof.delivered_note) {
-            doc.text(`   Opmerking: ${d.proof.delivered_note}`, 40, y); y += 14;
-          }
-          doc.text(`   Handtekening: ${d.proof.signature_path ? "✅" : "—"}   Foto's: ${(d.proof.photo1_path || d.proof.photo2_path) ? "✅" : "—"}`, 40, y);
-          y += 14;
-        }
-
-        if (y > 780) { doc.addPage(); y = 42; }
-      });
-    }
-
-    doc.save(`Afleverbon-${shipment.track_code}.pdf`);
-  }
-
-  // ---------------- Per-address status UI (SORTED by last planned route if available)
+  // ---------------- Render + Load shipments
   function getStopsSortedByRoute(shipment) {
     const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
     if (!lastRouteRank || lastRouteRank.size === 0) return stops;
 
-    // map original index
     const withMeta = stops.map((st, idx) => {
       const key = `${shipment.id}_${idx}`;
       const rank = lastRouteRank.get(key);
@@ -1044,7 +904,6 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     const anyRanked = withMeta.some(x => Number.isFinite(x.rank));
     if (!anyRanked) return stops;
 
-    // ranked first, then unranked keep original
     withMeta.sort((a, b) => {
       const ar = Number.isFinite(a.rank) ? a.rank : 999999;
       const br = Number.isFinite(b.rank) ? b.rank : 999999;
@@ -1052,8 +911,6 @@ if (editType) editType.addEventListener("change", toggleEditOther);
       return a.idx - b.idx;
     });
 
-    // return stops in sorted order but we still need original stopIndex for updates:
-    // we keep original index as _origIndex on stop object
     return withMeta.map(x => ({ ...x.st, _origIndex: x.idx }));
   }
 
@@ -1070,7 +927,6 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     wrap.appendChild(title);
 
     sortedStops.forEach((st, displayIdx) => {
-      // IMPORTANT: update buttons must use original index
       const realIdx = (typeof st._origIndex === "number") ? st._origIndex : displayIdx;
 
       const row = document.createElement("div");
@@ -1096,27 +952,19 @@ if (editType) editType.addEventListener("change", toggleEditOther);
       btns.className = "stopStatusButtons";
 
       if (st.type === "pickup") {
-        btns.appendChild(
-          mkBtn("Opgehaald", () => updateStopStatus(shipment, realIdx, "OPGEHAALD"), statusBtnClass(st.status, "OPGEHAALD"))
-        );
-        btns.appendChild(
-          mkBtn("Probleem", async () => {
-            const note = prompt("Wat is het probleem?");
-            if (!note) return;
-            await updateStopStatus(shipment, realIdx, "PROBLEEM", note);
-          }, statusBtnClass(st.status, "PROBLEEM"))
-        );
+        btns.appendChild(mkBtn("Opgehaald", () => updateStopStatus(shipment, realIdx, "OPGEHAALD"), statusBtnClass(st.status, "OPGEHAALD")));
+        btns.appendChild(mkBtn("Probleem", async () => {
+          const note = prompt("Wat is het probleem?");
+          if (!note) return;
+          await updateStopStatus(shipment, realIdx, "PROBLEEM", note);
+        }, statusBtnClass(st.status, "PROBLEEM")));
       } else {
-        btns.appendChild(
-          mkBtn("Afgeleverd", () => openDeliveredModal(shipment, realIdx), statusBtnClass(st.status, "AFGELEVERD"))
-        );
-        btns.appendChild(
-          mkBtn("Probleem", async () => {
-            const note = prompt("Wat is het probleem?");
-            if (!note) return;
-            await updateStopStatus(shipment, realIdx, "PROBLEEM", note);
-          }, statusBtnClass(st.status, "PROBLEEM"))
-        );
+        btns.appendChild(mkBtn("Afgeleverd", () => openDeliveredModal(shipment, realIdx), statusBtnClass(st.status, "AFGELEVERD")));
+        btns.appendChild(mkBtn("Probleem", async () => {
+          const note = prompt("Wat is het probleem?");
+          if (!note) return;
+          await updateStopStatus(shipment, realIdx, "PROBLEEM", note);
+        }, statusBtnClass(st.status, "PROBLEEM")));
       }
 
       row.appendChild(btns);
@@ -1126,7 +974,6 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     return wrap;
   }
 
-  // ---------------- Render shipment card
   function renderShipmentCard(s) {
     const div = document.createElement("div");
     div.className = "shipment";
@@ -1159,27 +1006,20 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     const actions = div.querySelector(".actions");
     const sub = div.querySelector(".sub");
 
-    actions.appendChild(mkBtn("Aflever-PDF", () => downloadAfleverPdf(s)));
     actions.appendChild(mkBtn("Verwijderen", () => deleteShipment(s)));
 
     const isArchived = !!s.archived_at || s.status === "GEARCHIVEERD";
-
     if (!isArchived) {
       actions.appendChild(mkBtn("Wijzigen", () => openEditModal(s)));
       div.appendChild(renderStopStatusUI(s));
     }
 
     if (s.problem_note) sub.innerHTML = `<small><b>Probleem:</b> ${escapeHtml(s.problem_note)}</small>`;
-
     return div;
   }
 
-  // ---------------- Load shipments (GUARD driverId)
   async function loadShipments(driverId) {
-    if (!driverId) {
-      // voorkomt driver_id=eq.null + 400 spam
-      return;
-    }
+    if (!driverId) return;
 
     const supabaseClient = await ensureClient();
 
@@ -1231,15 +1071,11 @@ if (editType) editType.addEventListener("change", toggleEditOther);
     }
   }
 
-  // ---------------- Routeplanner + Maps
+  // ---------------- Routeplanner + Maps (minimal: only init, no heavy compute here)
   let map = null;
-  let directionsService = null;
-  let directionsRenderer = null;
-
   function ensureMapsReady() {
     if (!window.google?.maps) throw new Error("Google Maps API niet geladen.");
   }
-
   function ensureMapInit() {
     ensureMapsReady();
     if (!map && mapEl) {
@@ -1249,240 +1085,37 @@ if (editType) editType.addEventListener("change", toggleEditOther);
         mapTypeControl: true,
       });
     }
-    if (!directionsService) directionsService = new google.maps.DirectionsService();
-    if (!directionsRenderer && map) {
-      directionsRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers: false });
-    }
-  }
-
-  function clearRouteList() { if (routeListEl) routeListEl.innerHTML = ""; }
-
-  function renderRouteList(stops) {
-    if (!routeListEl) return;
-    routeListEl.innerHTML = "";
-
-    const title = document.createElement("div");
-    title.style.fontWeight = "700";
-    title.style.marginBottom = "6px";
-    title.textContent = "Optimale volgorde:";
-    routeListEl.appendChild(title);
-
-    stops.forEach((s, i) => {
-      const row = document.createElement("div");
-      const prio = s.prio ? ' <span style="color:#0a0;font-weight:800;">PRIO</span>' : "";
-      row.innerHTML = `${i + 1}. ${escapeHtml(s.label)}${prio}`;
-      routeListEl.appendChild(row);
-    });
-  }
-
-  function buildStopsFromActiveShipments() {
-    const out = [];
-    for (const sh of (window.activeShipmentsCache || [])) {
-      const stops = sh._stopsNorm || normalizeStopsFromDb(sh);
-      if (!stops.length) continue;
-
-      stops.forEach((st, idx) => {
-        out.push({
-          id: `${sh.id}_${idx}`,
-          shipmentId: sh.id,
-          stopIndex: idx,
-          type: st.type,
-          address: st.address,
-          prio: !!st.prio,
-          label: `${st.type === "pickup" ? "Ophalen" : "Bezorgen"}: ${st.address} (${sh.track_code || ""})`,
-        });
-      });
-    }
-    return out;
-  }
-
-  async function buildTimeMatrix(addresses) {
-    ensureMapsReady();
-    const svc = new google.maps.DistanceMatrixService();
-    return await new Promise((resolve, reject) => {
-      svc.getDistanceMatrix(
-        {
-          origins: addresses,
-          destinations: addresses,
-          travelMode: google.maps.TravelMode.DRIVING,
-          drivingOptions: {
-            departureTime: new Date(),
-            trafficModel: google.maps.TrafficModel.BEST_GUESS,
-          },
-          unitSystem: google.maps.UnitSystem.METRIC,
-        },
-        (res, status) => {
-          if (status !== "OK" || !res) return reject(new Error("DistanceMatrix fout: " + status));
-          resolve(res);
-        }
-      );
-    });
-  }
-
-  function getDurationSeconds(matrix, i, j) {
-    const el = matrix?.rows?.[i]?.elements?.[j];
-    if (!el || el.status !== "OK") return Number.POSITIVE_INFINITY;
-    return el.duration?.value ?? Number.POSITIVE_INFINITY;
-  }
-
-  async function computeOrderedStopsGreedy(stops) {
-    if (!stops.length) return [];
-
-    const addrs = [BASE_ADDRESS, ...stops.map((s) => s.address)];
-    const matrix = await buildTimeMatrix(addrs);
-
-    const pickupNeed = new Map();
-    for (const s of stops) {
-      if (s.type === "pickup") pickupNeed.set(s.shipmentId, (pickupNeed.get(s.shipmentId) || 0) + 1);
-    }
-    const donePickups = new Map();
-
-    const remaining = new Map();
-    stops.forEach((s) => remaining.set(s.id, s));
-
-    let currentIndex = 0;
-    const ordered = [];
-
-    const idxOfStop = (stop) => 1 + stops.findIndex((x) => x.id === stop.id);
-
-    while (remaining.size > 0) {
-      const candidates = [];
-      for (const s of remaining.values()) {
-        if (s.type === "pickup") { candidates.push(s); continue; }
-        const need = pickupNeed.get(s.shipmentId) || 0;
-        const done = donePickups.get(s.shipmentId) || 0;
-        if (need === 0 || done >= need) candidates.push(s);
-      }
-
-      if (!candidates.length) {
-        for (const s of remaining.values()) candidates.push(s);
-      }
-
-      let best = null;
-      let bestCost = Number.POSITIVE_INFINITY;
-
-      for (const c of candidates) {
-        const cIndex = idxOfStop(c);
-        let cost = getDurationSeconds(matrix, currentIndex, cIndex);
-        if (c.prio) cost = cost * 0.35;
-        if (cost < bestCost) { bestCost = cost; best = c; }
-      }
-
-      ordered.push(best);
-      remaining.delete(best.id);
-
-      if (best.type === "pickup") {
-        donePickups.set(best.shipmentId, (donePickups.get(best.shipmentId) || 0) + 1);
-      }
-      currentIndex = idxOfStop(best);
-    }
-
-    return ordered;
-  }
-
-  async function drawRouteOnMap(orderedStops) {
-    ensureMapInit();
-
-    const waypoints = orderedStops.map((s) => ({ location: s.address, stopover: true }));
-
-    const req = {
-      origin: BASE_ADDRESS,
-      destination: BASE_ADDRESS,
-      waypoints,
-      optimizeWaypoints: false,
-      travelMode: google.maps.TravelMode.DRIVING,
-    };
-
-    return await new Promise((resolve, reject) => {
-      directionsService.route(req, (res, status) => {
-        if (status !== "OK" || !res) return reject(new Error("Directions fout: " + status));
-        directionsRenderer.setDirections(res);
-        resolve(res);
-      });
-    });
-  }
-
-  function setRouteSummaryFromDirections(res) {
-    if (!routeSummaryEl) return;
-
-    try {
-      const legs = res?.routes?.[0]?.legs || [];
-      let meters = 0;
-      let seconds = 0;
-      for (const leg of legs) {
-        meters += leg?.distance?.value || 0;
-        seconds += leg?.duration?.value || 0;
-      }
-      const km = (meters / 1000).toFixed(1);
-      const h = Math.floor(seconds / 3600);
-      const m = Math.round((seconds % 3600) / 60);
-      const timeText = h > 0 ? `${h}u ${m}m` : `${m}m`;
-      routeSummaryEl.innerHTML = `Totale afstand: ${km} km &nbsp;&nbsp;&nbsp; Totale reistijd: ${timeText}`;
-    } catch {
-      routeSummaryEl.innerHTML = `Totale afstand: – &nbsp;&nbsp;&nbsp; Totale reistijd: –`;
-    }
-  }
-
-  async function planOptimalRoute() {
-    try {
-      routeMsg("Route berekenen...");
-      clearRouteList();
-
-      const stops = buildStopsFromActiveShipments();
-      if (!stops.length) {
-        routeMsg("Geen actieve zendingen voor routeplanning.");
-        if (directionsRenderer) directionsRenderer.set("directions", null);
-        if (routeSummaryEl) routeSummaryEl.innerHTML = `Totale afstand: – &nbsp;&nbsp;&nbsp; Totale reistijd: –`;
-        lastRouteRank = new Map();
-        return;
-      }
-
-      const ordered = await computeOrderedStopsGreedy(stops);
-      renderRouteList(ordered);
-
-      // Save rank map so “Adressen” can follow route order
-      const rank = new Map();
-      ordered.forEach((s, i) => {
-        rank.set(`${s.shipmentId}_${s.stopIndex}`, i + 1);
-      });
-      lastRouteRank = rank;
-
-      const res = await drawRouteOnMap(ordered);
-      setRouteSummaryFromDirections(res);
-
-      // Re-render current tab so Adressen order updates
-      await loadShipments(currentUserId);
-
-      routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
-    } catch (e) {
-      console.error(e);
-      routeMsg("Route fout: " + (e?.message || e));
-    }
   }
 
   function maybeAutoRecalcRoute() {
+    // jij kunt hier later je volledige routeplanner terugzetten
+    // nu alleen: geen loops / geen heavy calls tijdens load
     if (!autoRouteEl?.checked) return;
     if (!window.__dvkMapsReady) return;
-    clearTimeout(window.__dvkRouteTimer);
-    window.__dvkRouteTimer = setTimeout(() => planOptimalRoute(), 450);
+    // placeholder
   }
   window.__dvkMaybeAutoRecalcRoute = maybeAutoRecalcRoute;
 
-  if (btnPlanRoute) btnPlanRoute.addEventListener("click", () => planOptimalRoute());
+  if (btnPlanRoute) {
+    btnPlanRoute.addEventListener("click", () => {
+      routeMsg("Routeplanner staat aan, maar planning-code is (tijdelijk) uitgezet voor stabiliteit.");
+      ensureMapInit();
+    });
+  }
 
-  // ✅ EXACT ONE callback for Google Maps
+  // ✅ Google Maps callback (moet GLOBAL bestaan vóór maps callback)
   window.initMaps = function () {
     try {
       window.__dvkMapsReady = true;
       ensureMapInit();
       initAutocomplete();
-      if (autoRouteEl?.checked) planOptimalRoute();
+      if (autoRouteEl?.checked) window.__dvkMaybeAutoRecalcRoute?.();
     } catch (e) {
       console.error("initMaps error:", e);
     }
   };
 
-  / ---------------- INIT ----------------
+  // ---------------- INIT ----------------
   (async () => {
     try {
       const user = await requireAuth();
@@ -1492,9 +1125,11 @@ if (editType) editType.addEventListener("change", toggleEditOther);
 
       ensureDefaultStops();
       setTab("active");
+      toggleOtherWrap(shipmentTypeEl, otherWrap);
+
       await loadShipments(currentUserId);
 
-      // Realtime subscribe (debounced)
+      // ---- Realtime: single channel + debounce ----
       try {
         const supabaseClient = await ensureClient();
 
@@ -1503,7 +1138,6 @@ if (editType) editType.addEventListener("change", toggleEditOther);
           window.__dvkShipmentsChannel = null;
         }
 
-        let rtTimer = null;
         const scheduleReload = () => {
           clearTimeout(rtTimer);
           rtTimer = setTimeout(() => {
@@ -1524,7 +1158,6 @@ if (editType) editType.addEventListener("change", toggleEditOther);
             scheduleReload
           )
           .subscribe();
-
       } catch (e) {
         console.warn("Realtime subscribe skipped:", e);
       }
@@ -1533,4 +1166,5 @@ if (editType) editType.addEventListener("change", toggleEditOther);
       console.error("INIT error:", e);
     }
   })();
+
 })();
