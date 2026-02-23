@@ -1521,7 +1521,7 @@ if (editType) editType.addEventListener("change", toggleEditOther);
         .on(
           "postgres_changes",
           {
-            event: "*",
+            event: "INSERT",
             schema: "public",
             table: "shipments",
             filter: `driver_id=eq.${currentUserId}`,
