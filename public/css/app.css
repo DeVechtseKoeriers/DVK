@@ -87,15 +87,18 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 
 /* PRIO netjes onder adres + naast checkbox */
 .prioLine{
-  display: inline-flex;
+  display: flex;              /* niet inline-flex */
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
+  justify-content: flex-start;
+  gap: 4px;                   /* kleinere ruimte tussen checkbox en PRIO */
+  margin: 0;                  /* geen extra ruimte boven */
+  width: auto;                /* belangrijk: niet uitrekken */
   font-weight: 600;
 }
 
 .prioLine input{
   margin: 0;
+  width: auto;                /* voorkomt dat checkbox breed wordt */
 }
 
 /* ===== Create shipment layout ===== */
