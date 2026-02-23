@@ -43,10 +43,10 @@
   const editOverlay = document.getElementById("editOverlay");
   const editShipmentInfo = document.getElementById("editShipmentInfo");
   const editCustomer = document.getElementById("editCustomer");
-  const editType = document.getElementById("editType");
-  const editColli = document.getElementById("editColli");
-  const editOtherWrap = document.getElementById("editOtherWrap");
-  const editTypeOther = document.getElementById("editTypeOther");
+  const editType      = document.getElementById("edit_shipment_type");
+  const editColli     = document.getElementById("edit_colli_count");
+  const editOtherWrap = document.getElementById("edit_otherWrap");
+  const editTypeOther = document.getElementById("edit_shipment_type_other");
   const editError = document.getElementById("editError");
   const editCancel = document.getElementById("editCancel");
   const editSave = document.getElementById("editSave");
