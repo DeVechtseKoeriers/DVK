@@ -259,39 +259,43 @@ button.statusBtn.isActive {
   </div>
 </div>
 
-/* ===== Type zending / Aantal colli: zelfde layout als adresregels ===== */
+/* ===== Type zending / Aantal colli: zelfde breedte als adresvelden (desktop) ===== */
 .typeColliGrid{
-  display: grid;
-  grid-template-columns: 110px 520px; /* zelfde als stopRow: label + input */
+  /* NIET full width */
+  display: inline-grid;               /* <- dit is de key: shrink-to-fit */
+  grid-template-columns: 110px 520px; /* label + input breedte */
   column-gap: 10px;
   row-gap: 8px;
   align-items: center;
+  justify-content: start;
 }
 
 .typeColliGrid .fieldRow{
-  display: contents; /* label en input vallen direct in de grid-kolommen */
+  display: contents;
 }
 
 .typeColliGrid label{
   font-weight: 700;
 }
 
-/* Zorg dat select/input dezelfde "dikte" (hoogte/padding/border) hebben als adressen */
+/* Zelfde "dikte" als adres inputs */
 .typeColliGrid select,
 .typeColliGrid input{
-  width: 100%;
+  width: 100%;            /* vult alleen de 520px kolom, niet de hele pagina */
+  min-width: 0;           /* belangrijk ivm jouw globale min-width */
   box-sizing: border-box;
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 6px;
-  height: 40px;            /* dit is je "dikte" */
+  height: 40px;
   line-height: 22px;
-  min-width: 0;            /* voorkomt rare overflow door globale min-width */
 }
 
-/* Mobiel: alles onder elkaar */
+/* Mobiel: netjes onder elkaar en wél 100% breed */
 @media (max-width: 720px){
   .typeColliGrid{
+    display: grid;
     grid-template-columns: 1fr;
+    width: 100%;
   }
 }
