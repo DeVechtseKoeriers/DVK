@@ -159,9 +159,10 @@ button:disabled { opacity: .6; cursor: not-allowed; }
   gap:8px;
 }
 
-stopRow{
+.stopRow{
   display:grid;
-  grid-template-columns: 110px 520px auto 34px;
+  grid-template-columns: 110px 520px max-content 34px;
+  column-gap: 1px;   /* ← hier regel je de 1px speling */
 }
 
 .stopType{
@@ -171,7 +172,7 @@ stopRow{
 .prioLine{
   display:inline-flex;
   align-items:center;
-  gap:6px;
+  gap:1px;
   margin:0;
   user-select:none;
   white-space:nowrap;
