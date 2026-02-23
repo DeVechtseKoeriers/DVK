@@ -258,3 +258,26 @@ button.statusBtn.isActive {
     <input id="colli_count" type="number" min="1" value="1" />
   </div>
 </div>
+
+/* ===== Type zending + Aantal colli exact gelijk aan adresvelden ===== */
+
+.typeColliStack{
+  width: 520px;        /* zelfde breedte als je adreskolom */
+  max-width: 100%;
+  display: grid;
+  gap: 12px;
+}
+
+.typeColliStack input,
+.typeColliStack select{
+  width: 100%;
+  min-width: 0;        /* override globale min-width */
+  box-sizing: border-box;
+
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+
+  height: 40px;        /* maakt ze exact even dik */
+  font: inherit;
+}
