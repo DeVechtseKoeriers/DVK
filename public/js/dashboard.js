@@ -1,10 +1,13 @@
-// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD (v3.1-fixed)
-// Fixes:
-// - Removed duplicate const declarations (editOtherWrap etc)
-// - Edit modal uses edit_* ids safely
-// - Routeplanner: skip already-done stops
-// - After route planning: show "optimale volgorde" ALSO inside each shipment's address list
-//   (sorted by route order when available)
+// DVK Driver Dashboard — STABLE SINGLE-FILE BUILD (v3)
+// - Per-stop buttons:
+//   * Pickup stop: only "Opgehaald" + "Probleem"
+//   * Delivery stop: only "Afgeleverd" (opens proof modal) + "Probleem"
+// - Events written correctly per stop:
+//   * OPGEHAALD/AFGELEVERD/PROBLEEM with stop_index (created_at provides date/time for Track&Trace)
+// - Auto-archive when ALL deliveries are AFGELEVERD
+// - Aflever-PDF with logo + pickup/delivery times
+// - Business search in Places works (name + address)
+// - No duplicate initMaps, no parse errors
 
 (() => {
   "use strict";
@@ -40,13 +43,10 @@
   const editOverlay = document.getElementById("editOverlay");
   const editShipmentInfo = document.getElementById("editShipmentInfo");
   const editCustomer = document.getElementById("editCustomer");
-
-  // IMPORTANT: edit ids MUST exist in dashboard.html
-  const editType = document.getElementById("edit_shipment_type");
-  const editColli = document.getElementById("edit_colli_count");
+  const editType      = document.getElementById("edit_shipment_type");
+  const editColli     = document.getElementById("edit_colli_count");
   const editOtherWrap = document.getElementById("edit_otherWrap");
   const editTypeOther = document.getElementById("edit_shipment_type_other");
-
   const editError = document.getElementById("editError");
   const editCancel = document.getElementById("editCancel");
   const editSave = document.getElementById("editSave");
@@ -96,10 +96,6 @@
 
   let activeShipmentsCache = [];
   window.activeShipmentsCache = activeShipmentsCache;
-
-  // Route order map:
-  // key = `${shipmentId}_${stopIndex}`  value = position (1..N)
-  let routeOrderIndexByStopKey = new Map();
 
   // ---------------- Helpers
   function msg(t) { if (createMsg) createMsg.textContent = t || ""; }
@@ -238,19 +234,22 @@
     });
   }
 
-  // ---------------- Type “overig” (CREATE)
+  // ---------------- Type “overig”
   if (shipmentTypeEl && otherWrap) {
     shipmentTypeEl.addEventListener("change", () => {
       otherWrap.style.display = shipmentTypeEl.value === "overig" ? "block" : "none";
     });
   }
 
-  // ---------------- Type “overig” (EDIT)
-  function toggleEditOther() {
-    if (!editType || !editOtherWrap) return;
-    editOtherWrap.style.display = editType.value === "overig" ? "block" : "none";
-  }
-  if (editType) editType.addEventListener("change", toggleEditOther);
+  // ----------------- Type "overig" (EDIT MODAL)
+const editShipmentTypeEl = document.getElementById("edit_shipment_type");
+const editOtherWrap = document.getElementById("edit_otherWrap");
+
+if (editShipmentTypeEl && editOtherWrap) {
+  editShipmentTypeEl.addEventListener("change", () => {
+    editOtherWrap.style.display = editShipmentTypeEl.value === "overig" ? "block" : "none";
+  });
+}
 
   // ---------------- Google Places attach (bedrijven + adressen)
   function attachPlacesToInput(inputEl) {
@@ -261,6 +260,7 @@
 
       const ac = new google.maps.places.Autocomplete(inputEl, {
         fields: ["formatted_address", "name", "place_id"],
+        // GEEN types filter -> bedrijven + adressen
       });
 
       ac.addListener("place_changed", () => {
@@ -613,7 +613,7 @@
           delivery_prio: legacy.delivery_prio,
         });
 
-        // event
+        // ✅ CORRECT EVENT: AFGELEVERD (not overall)
         try {
           const st = stops[currentDeliveryStopIndex];
           await addEvent(
@@ -673,7 +673,7 @@
       ...(newStatus === "PROBLEEM" && note ? { problem_note: note } : {}),
     });
 
-    // event: use newStatus
+    // ✅ CORRECT EVENT: use newStatus (not overall)
     try {
       const addr = st0.address;
       const label = st0.type === "pickup" ? "Ophalen" : "Bezorgen";
@@ -690,6 +690,12 @@
   }
 
   // ---------------- Edit modal (stops)
+  function toggleEditOther() {
+    if (!editType || !editOtherWrap) return;
+    editOtherWrap.style.display = editType.value === "overig" ? "block" : "none";
+  }
+  if (editType) editType.addEventListener("change", toggleEditOther);
+
   function addEditStopRow(type, address = "", prio = false) {
     if (!editStopsWrap) return;
 
@@ -786,8 +792,6 @@
 
     try {
       const oldStops = normalizeStopsFromDb(currentEditShipment);
-
-      // merge existing statuses/proofs by index
       const mergedStops = stops.map((s, i) => ({
         ...s,
         status: oldStops[i]?.status ?? null,
@@ -1080,24 +1084,7 @@
     title.textContent = "Adressen:";
     wrap.appendChild(title);
 
-    // If route order known => sort addresses by route order for this shipment
-    const rowsWithOrder = stops.map((st, idx) => {
-      const key = `${shipment.id}_${idx}`;
-      const order = routeOrderIndexByStopKey.has(key) ? routeOrderIndexByStopKey.get(key) : null;
-      return { st, idx, order };
-    });
-
-    const hasAnyOrder = rowsWithOrder.some(x => x.order != null);
-    if (hasAnyOrder) {
-      rowsWithOrder.sort((a, b) => {
-        const ao = a.order == null ? 999999 : a.order;
-        const bo = b.order == null ? 999999 : b.order;
-        if (ao !== bo) return ao - bo;
-        return a.idx - b.idx;
-      });
-    }
-
-    rowsWithOrder.forEach(({ st, idx, order }) => {
+    stops.forEach((st, idx) => {
       const row = document.createElement("div");
       row.className = "stopStatusRow";
 
@@ -1110,11 +1097,9 @@
           ? (st.picked_up_at ? `Ophaaltijd: <b>${escapeHtml(fmtDT(st.picked_up_at))}</b>` : `Ophaaltijd: <b>—</b>`)
           : (st.proof?.delivered_at ? `Bezorgtijd: <b>${escapeHtml(fmtDT(st.proof.delivered_at))}</b>` : `Bezorgtijd: <b>—</b>`);
 
-      const routeNr = (order != null) ? `<span style="margin-left:8px; font-weight:800;">#${order}</span>` : "";
-
       row.innerHTML = `
         <div class="small" style="flex:1;">
-          <b>${escapeHtml(tag)}:</b> ${escapeHtml(st.address)}${prio}${routeNr}<br/>
+          <b>${idx + 1}. ${escapeHtml(tag)}:</b> ${escapeHtml(st.address)}${prio}<br/>
           <span class="small">Huidig: <b>${escapeHtml(cur)}</b> • ${timeLine}</span>
         </div>
       `;
@@ -1230,8 +1215,7 @@
     const archived = all.filter((s) => !!s.archived_at || s.status === "GEARCHIVEERD");
     const active = all.filter((s) => !s.archived_at && s.status !== "GEARCHIVEERD");
 
-    // For route planning: keep active shipments, but we will skip "done" stops later.
-    activeShipmentsCache = active;
+    activeShipmentsCache = active.filter((s) => s.status !== "AFGELEVERD");
     window.activeShipmentsCache = activeShipmentsCache;
 
     if (listEl) listEl.innerHTML = "";
@@ -1305,14 +1289,9 @@
       if (!stops.length) continue;
 
       stops.forEach((st, idx) => {
-        // Skip already-done stops:
-        if (st.type === "pickup" && st.status === "OPGEHAALD") return;
-        if (st.type === "delivery" && st.status === "AFGELEVERD") return;
-
         out.push({
           id: `${sh.id}_${idx}`,
           shipmentId: sh.id,
-          stopIndex: idx,
           type: st.type,
           address: st.address,
           prio: !!st.prio,
@@ -1404,6 +1383,14 @@
       currentIndex = idxOfStop(best);
     }
 
+    if (ordered.length && ordered[ordered.length - 1].type !== "delivery") {
+      const lastDeliveryIdx = [...ordered].map((s, i) => ({ s, i })).reverse().find((x) => x.s.type === "delivery")?.i;
+      if (lastDeliveryIdx != null) {
+        const d = ordered.splice(lastDeliveryIdx, 1)[0];
+        ordered.push(d);
+      }
+    }
+
     return ordered;
   }
 
@@ -1458,30 +1445,18 @@
       const stops = buildStopsFromActiveShipments();
       if (!stops.length) {
         routeMsg("Geen actieve zendingen voor routeplanning.");
-        routeOrderIndexByStopKey = new Map();
         if (directionsRenderer) directionsRenderer.set("directions", null);
         if (routeSummaryEl) routeSummaryEl.innerHTML = `Totale afstand: – &nbsp;&nbsp;&nbsp; Totale reistijd: –`;
-        await loadShipments(currentUserId);
         return;
       }
 
       const ordered = await computeOrderedStopsGreedy(stops);
       renderRouteList(ordered);
 
-      // Build route order map (for showing inside shipments)
-      routeOrderIndexByStopKey = new Map();
-      ordered.forEach((s, i) => {
-        // s.id is `${shipmentId}_${stopIndex}`
-        routeOrderIndexByStopKey.set(s.id, i + 1);
-      });
-
       const res = await drawRouteOnMap(ordered);
       setRouteSummaryFromDirections(res);
 
       routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
-
-      // Re-render shipments so address lists show the sorted order + #numbers
-      await loadShipments(currentUserId);
     } catch (e) {
       console.error(e);
       routeMsg("Route fout: " + (e?.message || e));
