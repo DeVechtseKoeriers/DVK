@@ -1071,37 +1071,43 @@
     }
   }
 
-  // ---------------- Routeplanner + Maps (minimal: only init, no heavy compute here)
-  let map = null;
-  function ensureMapsReady() {
-    if (!window.google?.maps) throw new Error("Google Maps API niet geladen.");
-  }
-  function ensureMapInit() {
-    ensureMapsReady();
-    if (!map && mapEl) {
-      map = new google.maps.Map(mapEl, {
-        zoom: 9,
-        center: { lat: 52.27, lng: 5.07 },
-        mapTypeControl: true,
-      });
+   // Save rank map so “Adressen” kan volgen
+    const rank = new Map();
+    ordered.forEach((s, i) => rank.set(`${s.shipmentId}_${s.stopIndex}`, i + 1));
+    lastRouteRank = rank;
+
+    const res = await drawRouteOnMap(ordered);
+    setRouteSummaryFromDirections(res);
+
+    // re-render adressenvolgorde (maar voorkom loops)
+    if (currentUserId && !isLoadingShipments) {
+      await loadShipments(currentUserId, { silentRoute: true });
     }
-  }
 
-  function maybeAutoRecalcRoute() {
-    // jij kunt hier later je volledige routeplanner terugzetten
-    // nu alleen: geen loops / geen heavy calls tijdens load
-    if (!autoRouteEl?.checked) return;
-    if (!window.__dvkMapsReady) return;
-    // placeholder
+    if (!silent) routeMsg(`Route klaar • ${ordered.length} stops • start/eind: Nigtevecht`);
+  } catch (e) {
+    console.error(e);
+    routeMsg("Route fout: " + (e?.message || e));
+  } finally {
+    isPlanningRoute = false;
   }
-  window.__dvkMaybeAutoRecalcRoute = maybeAutoRecalcRoute;
+}
 
-  if (btnPlanRoute) {
-    btnPlanRoute.addEventListener("click", () => {
-      routeMsg("Routeplanner staat aan, maar planning-code is (tijdelijk) uitgezet voor stabiliteit.");
-      ensureMapInit();
-    });
-  }
+function maybeAutoRecalcRoute() {
+  if (!autoRouteEl?.checked) return;
+  if (!window.__dvkMapsReady) return;
+
+  clearTimeout(window.__dvkRouteTimer);
+  window.__dvkRouteTimer = setTimeout(() => planOptimalRoute({ silent: true }), 600);
+}
+window.__dvkMaybeAutoRecalcRoute = maybeAutoRecalcRoute;
+
+if (btnPlanRoute) btnPlanRoute.addEventListener("click", () => planOptimalRoute());
+
+/**
+ * ✅ Google Maps callback (blijft exact één)
+ * Let op: in jouw script staat window.initMaps al — die blijft staan.
+ */
 
   // ✅ Google Maps callback (moet GLOBAL bestaan vóór maps callback)
   window.initMaps = function () {
