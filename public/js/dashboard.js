@@ -241,6 +241,16 @@
     });
   }
 
+  // ----------------- Type "overig" (EDIT MODAL)
+const editShipmentTypeEl = document.getElementById("edit_shipment_type");
+const editOtherWrap = document.getElementById("edit_otherWrap");
+
+if (editShipmentTypeEl && editOtherWrap) {
+  editShipmentTypeEl.addEventListener("change", () => {
+    editOtherWrap.style.display = editShipmentTypeEl.value === "overig" ? "block" : "none";
+  });
+}
+
   // ---------------- Google Places attach (bedrijven + adressen)
   function attachPlacesToInput(inputEl) {
     try {
