@@ -40,26 +40,21 @@
 
       <!-- Type + Colli -->
       <div class="typeColliGrid">
-        <div class="fieldRow">
-          <label for="shipment_type">Type zending</label>
-          <select id="shipment_type">
-            <option value="doos">Doos</option>
-            <option value="enveloppe">Enveloppe</option>
-            <option value="pallet">Pallet</option>
-            <option value="overig">Overig</option>
-          </select>
-        </div>
+  <label for="edit_shipment_type">Type zending</label>
+  <select id="edit_shipment_type">
+    <option value="doos">Doos</option>
+    <option value="enveloppe">Enveloppe</option>
+    <option value="pallet">Pallet</option>
+    <option value="overig">Overig</option>
+  </select>
 
-        <div id="otherWrap" class="fieldRow" style="display:none">
-          <label for="shipment_type_other">Overig (invullen)</label>
-          <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
-        </div>
+  <div id="edit_otherWrap" style="display:none">
+    <input id="edit_shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+  </div>
 
-        <div class="fieldRow">
-          <label for="colli_count">Aantal colli</label>
-          <input id="colli_count" type="number" min="1" value="1" />
-        </div>
-      </div>
+  <label for="edit_colli_count">Aantal colli</label>
+  <input id="edit_colli_count" type="number" min="1" value="1" />
+</div>
 
       <div style="align-self:flex-end">
         <button id="btnCreate" type="button">Aanmaken</button>
