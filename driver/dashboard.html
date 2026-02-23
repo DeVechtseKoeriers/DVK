@@ -136,27 +136,22 @@
 <input id="editPickup" type="hidden" />
 <input id="editDelivery" type="hidden" />
 
-    <div class="typeColliStack">
-  <div>
-    <label>Type zending</label>
-    <select id="editType">
-      <option value="doos">Doos</option>
-      <option value="enveloppe">Enveloppe</option>
-      <option value="pallet">Pallet</option>
-      <option value="overig">Overig</option>
-    </select>
+    <div class="typeColliGrid">
+  <label for="shipment_type">Type zending</label>
+  <select id="shipment_type">
+    <option value="doos">Doos</option>
+    <option value="enveloppe">Enveloppe</option>
+    <option value="pallet">Pallet</option>
+    <option value="overig">Overig</option>
+  </select>
+
+  <div id="otherWrap" style="display:none">
+    <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
   </div>
 
-  <div>
-    <label>Aantal colli</label>
-    <input id="editColli" type="number" min="1" value="1" />
-  </div>
+  <label for="colli_count">Aantal colli</label>
+  <input id="colli_count" type="number" min="1" value="1" />
 </div>
-
-    <div id="editOtherWrap" style="display:none;">
-      <label>Overig (invullen)</label>
-      <input id="editTypeOther" placeholder="Bijv. koelbox / tas / etc." />
-    </div>
 
     <p id="editError" class="small" style="color:#b00020;"></p>
 
