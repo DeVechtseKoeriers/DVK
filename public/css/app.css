@@ -337,3 +337,71 @@ label[for="shipment_type_other"]{
     width: 100%;
   }
 }
+
+/* ===== FIX LAYOUT: alles strak en gelijke kolommen ===== */
+
+/* 1) Stops rij: label | adres | prio | delete */
+.stopRow{
+  display: grid;
+  grid-template-columns: 110px 520px max-content max-content; /* vaste adresbreedte + compacte PRIO + compacte X */
+  column-gap: 8px;
+  align-items: center;
+  justify-content: start;  /* NIET uitrekken */
+}
+
+/* Zorg dat het adresveld echt in de 520px kolom blijft */
+.stopRow input,
+.stopRow select{
+  width: 100%;
+  min-width: 0;            /* belangrijk: voorkomt uitrekken */
+  box-sizing: border-box;
+}
+
+/* PRIO blok: checkbox + tekst strak bij elkaar */
+.prioLine{
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;                /* jouw wens: ~1px speling */
+  margin: 0;
+  white-space: nowrap;
+  justify-self: start;     /* blijft direct na adresveld */
+}
+
+/* checkbox niet raar breed */
+.prioLine input[type="checkbox"]{
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+/* delete knop direct naast PRIO */
+.stopDel,
+.stopRemove{
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  line-height: 34px;
+  justify-self: start;     /* niet naar rechts duwen */
+}
+
+/* 2) Type zending + Aantal colli exact zelfde kolommen als adressen */
+.typeColliGrid{
+  display: grid;
+  grid-template-columns: 110px 520px; /* zelfde als Stops: label + veld */
+  column-gap: 8px;
+  row-gap: 8px;
+  align-items: center;
+}
+
+/* velden exact dezelfde styling/breedte als adresvelden */
+.typeColliGrid select,
+.typeColliGrid input{
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Overig veld netjes onder Type zending, alleen in kolom 2 */
+.typeColliGrid #otherWrap{
+  grid-column: 2;
+}
