@@ -259,29 +259,39 @@ button.statusBtn.isActive {
   </div>
 </div>
 
-/* ===== Type zending + Aantal colli exact gelijk aan adresvelden ===== */
-
-.typeColliStack{
-  width: 520px;        /* zelfde breedte als je adreskolom */
-  max-width: 520px;
+/* ===== Type zending / Aantal colli: zelfde layout als adresregels ===== */
+.typeColliGrid{
   display: grid;
-  gap: 12px;
+  grid-template-columns: 110px 520px; /* zelfde als stopRow: label + input */
+  column-gap: 10px;
+  row-gap: 8px;
+  align-items: center;
 }
 
-.typeColliStack{
-  margin-left: 110px;   /* schuift hem onder de inputkolom */
+.typeColliGrid .fieldRow{
+  display: contents; /* label en input vallen direct in de grid-kolommen */
 }
 
-.typeColliStack input,
-.typeColliStack select{
+.typeColliGrid label{
+  font-weight: 700;
+}
+
+/* Zorg dat select/input dezelfde "dikte" (hoogte/padding/border) hebben als adressen */
+.typeColliGrid select,
+.typeColliGrid input{
   width: 100%;
-  min-width: 0;        /* override globale min-width */
   box-sizing: border-box;
-
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 6px;
+  height: 40px;            /* dit is je "dikte" */
+  line-height: 22px;
+  min-width: 0;            /* voorkomt rare overflow door globale min-width */
+}
 
-  height: 40px;        /* maakt ze exact even dik */
-  font: inherit;
+/* Mobiel: alles onder elkaar */
+@media (max-width: 720px){
+  .typeColliGrid{
+    grid-template-columns: 1fr;
+  }
 }
