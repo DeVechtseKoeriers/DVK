@@ -38,25 +38,25 @@
 
       <div style="margin-top:12px;"></div>
 
-      <!-- Type + Colli -->
+      <!-- Type + Colli (CREATE: juiste IDs!) -->
       <div class="typeColliGrid">
-  <label for="edit_shipment_type">Type zending</label>
-  <select id="edit_shipment_type">
-    <option value="doos">Doos</option>
-    <option value="enveloppe">Enveloppe</option>
-    <option value="pallet">Pallet</option>
-    <option value="overig">Overig</option>
-  </select>
+        <label for="shipment_type">Type zending</label>
+        <select id="shipment_type">
+          <option value="doos">Doos</option>
+          <option value="enveloppe">Enveloppe</option>
+          <option value="pallet">Pallet</option>
+          <option value="overig">Overig</option>
+        </select>
 
-  <div id="edit_otherWrap" style="display:none">
-    <input id="edit_shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
-  </div>
+        <div id="otherWrap" style="display:none">
+          <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+        </div>
 
-  <label for="edit_colli_count">Aantal colli</label>
-  <input id="edit_colli_count" type="number" min="1" value="1" />
-</div>
+        <label for="colli_count">Aantal colli</label>
+        <input id="colli_count" type="number" min="1" value="1" />
+      </div>
 
-      <div style="align-self:flex-end">
+      <div style="align-self:flex-end; margin-top:10px;">
         <button id="btnCreate" type="button">Aanmaken</button>
       </div>
     </div>
@@ -82,8 +82,8 @@
   <div class="card">
     <h2>Routeplanner</h2>
 
-    <!-- Status hoort DIRECT onder titel -->
-    <div id="routeStatus" class="routeStatus"></div>
+    <!-- dashboard.js verwacht routeMsg -->
+    <div id="routeMsg" class="routeStatus"></div>
 
     <div class="routeControls">
       <button id="btnPlanRoute" type="button">Plan optimale route</button>
@@ -131,11 +131,8 @@
       <small class="muted">Tip: begin te typen en kies een adres uit de lijst.</small>
       <div id="editStopsWrap" class="stopsWrap"></div>
 
-      <input id="editPickup" type="hidden" />
-      <input id="editDelivery" type="hidden" />
-
-      <!-- Edit: eigen IDs (GEEN dubbele IDs meer) -->
-      <div class="typeColliGrid">
+      <!-- Edit: ALLEEN hier edit_* (en maar 1x!) -->
+      <div class="typeColliGrid" style="margin-top:10px;">
         <div class="fieldRow">
           <label for="edit_shipment_type">Type zending</label>
           <select id="edit_shipment_type">
@@ -221,7 +218,7 @@
   <!-- Google Maps als laatste -->
   <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDXE-jkOXsKxIdyXarrbBsA3ut_C3nvWMI&libraries=places&callback=initMaps"
-    async 
+    async
     defer
   ></script>
 </body>
