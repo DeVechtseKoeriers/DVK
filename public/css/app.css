@@ -159,10 +159,9 @@ button:disabled { opacity: .6; cursor: not-allowed; }
   gap:8px;
 }
 
-.stopRow{
+stopRow{
   display:grid;
-  grid-template-columns: 110px 520px 120px 34px;
-  gap:10px;
+  grid-template-columns: 110px 520px auto 34px;
   align-items:center;
 }
 
