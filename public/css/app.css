@@ -299,3 +299,39 @@ button.statusBtn.isActive {
     width: 100%;
   }
 }
+
+/* === Forceer Type zending + Aantal colli zelfde breedte als adresvelden === */
+/* Adresvelden zitten bij jou in een 520px kolom (stopRow). We nemen exact die maat. */
+
+#shipment_type,
+#colli_count,
+#shipment_type_other {
+  width: 520px;        /* desktop breedte gelijk aan adres input */
+  max-width: 100%;     /* mobiel netjes meeschalen */
+  min-width: 0;        /* override jouw globale min-width regels indien nodig */
+  box-sizing: border-box;
+
+  /* "Dikte" gelijk aan je andere inputs */
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  height: 40px;
+  line-height: 22px;
+}
+
+/* Labels boven de velden (zoals nu) */
+label[for="shipment_type"],
+label[for="colli_count"],
+label[for="shipment_type_other"]{
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* Mobiel: gewoon 100% breed */
+@media (max-width: 720px){
+  #shipment_type,
+  #colli_count,
+  #shipment_type_other{
+    width: 100%;
+  }
+}
