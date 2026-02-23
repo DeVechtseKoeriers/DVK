@@ -158,7 +158,7 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 
 .stopRow{
   display:grid;
-  grid-template-columns: 110px min(520px, 100%) 90px 34px;
+  grid-template-columns: 110px 520px 120px 34px;
   gap:10px;
   align-items:center;
 }
