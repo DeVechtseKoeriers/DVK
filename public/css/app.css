@@ -405,3 +405,12 @@ label[for="shipment_type_other"]{
 .typeColliGrid #otherWrap{
   grid-column: 2;
 }
+
+/* ===== Route status onder Routeplanner ===== */
+.routeStatus{
+  margin-top:4px;
+  margin-bottom:12px;
+  font-weight:500;
+  font-size:14px;
+  color:#555;
+}
