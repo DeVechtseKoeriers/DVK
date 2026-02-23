@@ -247,10 +247,10 @@
 
   // ---------------- Type “overig” (EDIT)
   function toggleEditOther() {
-    if (!editType || !editOtherWrapEl) return;
-    editOtherWrapEl.style.display = editType.value === "overig" ? "block" : "none";
-  }
-  if (editType) editType.addEventListener("change", toggleEditOther);
+  if (!editType || !editOtherWrap) return;
+  editOtherWrap.style.display = editType.value === "overig" ? "block" : "none";
+}
+if (editType) editType.addEventListener("change", toggleEditOther);
 
   // ---------------- Google Places attach (bedrijven + adressen)
   function attachPlacesToInput(inputEl) {
