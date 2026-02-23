@@ -38,21 +38,27 @@
       
    <div style="margin-top:12px;"></div>
 
-    <div class="createRow">
-      <div>
-        <label>Type zending</label><br/>
-        <select id="shipment_type">
-          <option value="doos">Doos</option>
-          <option value="enveloppe">Enveloppe</option>
-          <option value="pallet">Pallet</option>
-          <option value="overig">Overig</option>
-        </select>
-      </div>
+    <div class="typeColliStack">
+  <div>
+    <label>Type zending</label><br/>
+    <select id="shipment_type">
+      <option value="doos">Doos</option>
+      <option value="enveloppe">Enveloppe</option>
+      <option value="pallet">Pallet</option>
+      <option value="overig">Overig</option>
+    </select>
+  </div>
 
-      <div id="otherWrap" style="display:none">
-        <label>Overig (invullen)</label><br/>
-        <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
-      </div>
+  <div>
+    <label>Aantal colli</label><br/>
+    <input id="colli_count" type="number" min="1" value="1" />
+  </div>
+</div>
+
+<div id="otherWrap" style="display:none">
+  <label>Overig (invullen)</label><br/>
+  <input id="shipment_type_other" placeholder="Bijv. koelbox / tas / etc." />
+</div>
 
       <div>
         <label>Aantal colli</label><br/>
