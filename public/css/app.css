@@ -242,7 +242,7 @@ button.statusBtn.isActive {
   display:grid;
   grid-template-columns: 1fr;
   gap:12px;
-  max-width:380px;   /* bepaal zelf hoe breed */
+  max-width:380px;   
 }
 
 .typeColliStack select,
