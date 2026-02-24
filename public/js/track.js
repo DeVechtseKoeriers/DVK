@@ -267,7 +267,7 @@ document.addEventListener("DOMContentLoaded", () => {
       </ul>
 
       <div class="muted" style="margin-top:12px;">
-        Afleverbon na bezorging op te vragen via De Vechtse Koeriers via
+        Afleverbon na bezorging op te vragen bij De Vechtse Koeriers via
         <b>info@devechtsekoeriers.nl</b>
       </div>
     `;
