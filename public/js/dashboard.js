@@ -984,7 +984,8 @@
     return wrap;
   }
 
-  async function downloadAfleverPdf(shipment) {
+  // ---------------- PDF (Afleverbon / Bewijs van levering)
+async function downloadAfleverPdf(shipment) {
   if (!window.jspdf?.jsPDF) {
     alert("jsPDF ontbreekt. Controleer script tag in dashboard.html.");
     return;
@@ -993,194 +994,238 @@
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
 
+  const bucket = "dvk-delivery";
   const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
   const pickups = stops.filter(s => s.type === "pickup");
   const deliveries = stops.filter(s => s.type === "delivery");
 
-  // helpers
-  const pageH = 842;
-  const margin = 40;
-  let y = 50;
-
-  function ensureSpace(h = 18) {
-    if (y + h > pageH - 40) {
-      doc.addPage();
-      y = 50;
-    }
+  // --- HEADER + LOGO
+  const logoDataUrl = await fetchToDataUrl(LOGO_URL); // public file on your site
+  if (logoDataUrl) {
+    // left top logo
+    addImageFit(doc, logoDataUrl, 40, 30, 140, 45);
   }
 
-  async function toDataUrl(path) {
-    try {
-      const supabaseClient = await ensureClient();
-      const { data } = supabaseClient.storage.from("dvk-delivery").getPublicUrl(path);
-      const url = data?.publicUrl;
-      if (!url) return null;
+  let y = 95;
 
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-
-      const c = document.createElement("canvas");
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
-      const ctx = c.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      return c.toDataURL("image/png");
-    } catch {
-      return null;
-    }
-  }
-
-  // LOGO
-  try {
-    const logoImg = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = LOGO_URL;
-    });
-
-    const c = document.createElement("canvas");
-    c.width = logoImg.naturalWidth;
-    c.height = logoImg.naturalHeight;
-    const ctx = c.getContext("2d");
-    ctx.drawImage(logoImg, 0, 0);
-    const logoData = c.toDataURL("image/png");
-
-    doc.addImage(logoData, "PNG", margin, 25, 140, 42);
-  } catch {}
-
-  // HEADER
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text("De Vechtse Koeriers (DVK)", margin, y);
-  y += 25;
+  doc.setFontSize(16);
+  doc.text("De Vechtse Koeriers (DVK)", 40, y); y += 18;
 
-  doc.setDrawColor(180);
-  doc.line(margin, y, 555, y);
-  y += 25;
+  doc.setDrawColor(210);
+  doc.line(40, y, 555, y); y += 22;
 
-  // BASIS INFO
-  doc.setFontSize(12);
+  doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
-  doc.text(`Trackcode: ${shipment.track_code}`, margin, y); y += 18;
-  doc.text(`Klant: ${shipment.customer_name || ""}`, margin, y); y += 18;
+
+  doc.text(`Trackcode: ${shipment.track_code || ""}`, 40, y); y += 16;
+  doc.text(`Klant: ${shipment.customer_name || ""}`, 40, y); y += 16;
 
   const typeText = shipment.shipment_type === "overig"
     ? (shipment.shipment_type_other || "overig")
     : (shipment.shipment_type || "");
 
-  doc.text(`Type: ${typeText}`, margin, y); y += 18;
-  doc.text(`Colli: ${shipment.colli_count ?? ""}`, margin, y); y += 18;
-  doc.text(`Status: ${labelStatus(shipment.status)}`, margin, y); y += 25;
+  doc.text(`Type: ${typeText}`, 40, y); y += 16;
+  doc.text(`Colli: ${shipment.colli_count ?? ""}`, 40, y); y += 16;
+  doc.text(`Status: ${labelStatus(shipment.status)}`, 40, y); y += 22;
 
-  // ADRESSEN
+  // --- ADDRESSES
   doc.setFont("helvetica", "bold");
-  doc.text(`Ophaaladres${pickups.length > 1 ? "sen" : ""}:`, margin, y); y += 18;
+  doc.text(`Ophaaladres${pickups.length > 1 ? "sen" : ""}:`, 40, y); y += 16;
   doc.setFont("helvetica", "normal");
+
   if (!pickups.length) {
-    doc.text("—", margin, y); y += 18;
+    doc.text("—", 40, y); y += 16;
   } else {
     pickups.forEach((p, i) => {
-      ensureSpace();
-      doc.text(`${pickups.length > 1 ? `${i + 1}. ` : ""}${p.address}`, margin, y);
-      y += 18;
+      doc.text(`${pickups.length > 1 ? `${i + 1}. ` : ""}${p.address}${p.prio ? " (PRIO)" : ""}`, 40, y);
+      y += 16;
+      if (y > 760) { doc.addPage(); y = 60; }
     });
   }
 
-  y += 10;
-
+  y += 8;
   doc.setFont("helvetica", "bold");
-  doc.text(`Bezorgadres${deliveries.length > 1 ? "sen" : ""}:`, margin, y); y += 18;
+  doc.text(`Bezorgadres${deliveries.length > 1 ? "sen" : ""}:`, 40, y); y += 16;
   doc.setFont("helvetica", "normal");
+
   if (!deliveries.length) {
-    doc.text("—", margin, y); y += 18;
+    doc.text("—", 40, y); y += 16;
   } else {
     deliveries.forEach((d, i) => {
-      ensureSpace();
-      doc.text(`${deliveries.length > 1 ? `${i + 1}. ` : ""}${d.address}`, margin, y);
-      y += 18;
+      doc.text(`${deliveries.length > 1 ? `${i + 1}. ` : ""}${d.address}${d.prio ? " (PRIO)" : ""}`, 40, y);
+      y += 16;
+      if (y > 760) { doc.addPage(); y = 60; }
     });
   }
 
-  // PROOF PER DELIVERY (handtekening + fotos)
+  y += 14;
+
+  // --- PROOF PER DELIVERY (receiver + note + signature + photos)
+  // We print for every delivered stop that has proof
   for (let i = 0; i < deliveries.length; i++) {
     const d = deliveries[i];
-    if (!d.proof) continue;
+    if (!d?.proof) continue;
 
-    ensureSpace(30);
-    y += 10;
+    // Title per proof block
     doc.setFont("helvetica", "bold");
-    doc.text(`Aflevering ${deliveries.length > 1 ? i + 1 : ""}`, margin, y);
-    y += 18;
-
+    doc.text(`Ontvangst (${deliveries.length > 1 ? `adres ${i + 1}` : "bewijs"}):`, 40, y); y += 16;
     doc.setFont("helvetica", "normal");
-    doc.text(`Ontvanger: ${d.proof.receiver_name || "—"}`, margin, y); y += 16;
-    doc.text(`Notitie: ${d.proof.delivered_note || "—"}`, margin, y); y += 16;
-    doc.text(`Afgeleverd: ${d.proof.delivered_at ? fmtDT(d.proof.delivered_at) : "—"}`, margin, y); y += 20;
 
-    // Handtekening
-    if (d.proof.signature_path) {
-      const sigData = await toDataUrl(d.proof.signature_path);
-      if (sigData) {
-        ensureSpace(140);
-        doc.setFont("helvetica", "bold");
-        doc.text("Handtekening:", margin, y); y += 10;
-        doc.addImage(sigData, "PNG", margin, y, 220, 80);
-        y += 95;
-      }
+    doc.text(`Ontvanger: ${d.proof.receiver_name || "—"}`, 40, y); y += 16;
+
+    const note = d.proof.delivered_note || "";
+    if (note) {
+      doc.text(`Notitie: ${note}`, 40, y); y += 16;
     }
 
-    // Foto's (max 2)
-    const photos = [d.proof.photo1_path, d.proof.photo2_path].filter(Boolean);
-    for (let p = 0; p < photos.length; p++) {
-      const phData = await toDataUrl(photos[p]);
-      if (!phData) continue;
+    // Signature
+    const sigPath = d.proof.signature_path || null;
+    const sigDataUrl = await storagePathToDataUrl(bucket, sigPath);
 
-      ensureSpace(240);
+    doc.setFont("helvetica", "bold");
+    doc.text("Handtekening:", 40, y); y += 10;
+    doc.setFont("helvetica", "normal");
+
+    if (sigDataUrl) {
+      // signature box
+      doc.setDrawColor(200);
+      doc.rect(40, y, 260, 90);
+      addImageFit(doc, sigDataUrl, 45, y + 5, 250, 80);
+      y += 100;
+    } else {
+      doc.text("—", 40, y); y += 16;
+    }
+
+    // Photos
+    const p1 = d.proof.photo1_path || null;
+    const p2 = d.proof.photo2_path || null;
+
+    const p1Data = await storagePathToDataUrl(bucket, p1);
+    const p2Data = await storagePathToDataUrl(bucket, p2);
+
+    if (p1Data || p2Data) {
       doc.setFont("helvetica", "bold");
-      doc.text("Foto:", margin, y); y += 10;
-      doc.addImage(phData, "PNG", margin, y, 360, 200);
-      y += 215;
+      doc.text("Foto’s:", 40, y); y += 10;
+      doc.setFont("helvetica", "normal");
+
+      // simple layout: 1 row of max 2 photos
+      const w = 240;
+      const h = 160;
+
+      if (p1Data) addImageFit(doc, p1Data, 40, y, w, h);
+      if (p2Data) addImageFit(doc, p2Data, 315, y, w, h);
+
+      y += (h + 18);
     }
+
+    y += 10;
+    if (y > 720) { doc.addPage(); y = 60; }
   }
 
-  // PAGINA 2: TIJDPAD
-  doc.addPage();
-  y = 70;
+  // --- PAGE 2: TIJDPAD (events)
+  try {
+    const supabaseClient = await ensureClient();
+    const { data: evts, error } = await supabaseClient
+      .from("shipment_events")
+      .select("event_type, created_at, note")
+      .eq("shipment_id", shipment.id)
+      .order("created_at", { ascending: true });
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text("Tijdpad", margin, y);
-  y += 25;
+    if (!error && evts && evts.length) {
+      doc.addPage();
+      let ty = 70;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("Tijdpad", 40, ty); ty += 18;
 
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "normal");
+      doc.setDrawColor(210);
+      doc.line(40, ty, 555, ty); ty += 22;
 
-  // Bouw timeline
-  const timeline = [];
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "normal");
 
-  if (shipment.created_at) timeline.push({ label: "Aangemaakt", time: shipment.created_at });
+      for (const e of evts) {
+        const label = labelStatus(e.event_type) || e.event_type;
+        const dt = fmtDT(e.created_at);
+        doc.text(`${label}: ${dt}`, 40, ty); ty += 16;
 
-  stops.forEach((st) => {
-    if (st.type === "pickup" && st.picked_up_at) timeline.push({ label: "Opgehaald", time: st.picked_up_at });
-    if (st.type === "delivery" && st.proof?.delivered_at) timeline.push({ label: "Afgeleverd", time: st.proof.delivered_at });
-  });
+        if (e.note) {
+          doc.setFontSize(10);
+          doc.text(`  ${String(e.note).slice(0, 120)}`, 40, ty);
+          ty += 14;
+          doc.setFontSize(11);
+        }
 
-  if (shipment.archived_at) timeline.push({ label: "Gearchiveerd", time: shipment.archived_at });
-
-  timeline.sort((a, b) => new Date(a.time) - new Date(b.time));
-
-  timeline.forEach((t) => {
-    ensureSpace();
-    doc.text(`${t.label}: ${fmtDT(t.time)}`, margin, y);
-    y += 18;
-  });
+        if (ty > 780) { doc.addPage(); ty = 60; }
+      }
+    }
+  } catch (e) {
+    console.warn("tijdpad load failed:", e);
+  }
 
   doc.save(`Afleverbon-${shipment.track_code}.pdf`);
 }
 
+// ---------------- PDF IMAGE HELPERS (logo + signature + photos)
+async function blobToDataURL(blob) {
+  return await new Promise((resolve) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.readAsDataURL(blob);
+  });
+}
+
+async function fetchToDataUrl(url) {
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await blobToDataURL(blob);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load image from Supabase Storage path (bucket + path) to DataURL
+ * Works even if bucket is private (uses download()).
+ */
+async function storagePathToDataUrl(bucket, path) {
+  try {
+    if (!path) return null;
+    const supabaseClient = await ensureClient();
+
+    // 1) Try download (works with private buckets if policy allows)
+    const { data, error } = await supabaseClient.storage.from(bucket).download(path);
+    if (!error && data) return await blobToDataURL(data);
+
+    // 2) Fallback: public URL if bucket is public
+    const { data: pub } = supabaseClient.storage.from(bucket).getPublicUrl(path);
+    if (pub?.publicUrl) return await fetchToDataUrl(pub.publicUrl);
+
+    return null;
+  } catch (e) {
+    console.warn("storagePathToDataUrl failed:", e);
+    return null;
+  }
+}
+
+// add image with simple max-width/height fit
+function addImageFit(doc, dataUrl, x, y, maxW, maxH) {
+  if (!dataUrl) return { w: 0, h: 0 };
+
+  // jsPDF needs type: JPEG/PNG; detect quickly:
+  const isPng = typeof dataUrl === "string" && dataUrl.startsWith("data:image/png");
+  const type = isPng ? "PNG" : "JPEG";
+
+  // naive fit: assume landscape-ish if unknown; jsPDF can't read dimensions directly without extra work
+  // We'll use maxW,maxH as final box, preserving aspect roughly by using maxW and maxH.
+  // Good enough for signature/photos.
+  doc.addImage(dataUrl, type, x, y, maxW, maxH);
+  return { w: maxW, h: maxH };
+}
+  
   function renderShipmentCard(s) {
     const div = document.createElement("div");
     div.className = "shipment";
