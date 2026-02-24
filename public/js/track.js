@@ -44,22 +44,9 @@ document.addEventListener("DOMContentLoaded", () => {
       ONDERWEG: "Onderweg",
       AFGELEVERD: "Afgeleverd",
       PROBLEEM: "Probleem",
-      GEARCHIVEERD: "Gearchiveerd",
+      // GEARCHIVEERD bewust NIET tonen
     };
     return map[String(st || "").toUpperCase()] || (st || "Onbekend");
-  }
-
-  function eventTypeToNice(eventType) {
-    const e = String(eventType || "").toUpperCase();
-    const map = {
-      AANGEMAAKT: "Aangemaakt",
-      OPGEHAALD: "Opgehaald",
-      ONDERWEG: "Onderweg",
-      AFGELEVERD: "Afgeleverd",
-      PROBLEEM: "Probleem",
-      GEARCHIVEERD: "Gearchiveerd",
-    };
-    return map[e] || (eventType || "Event");
   }
 
   function fmtDateTimeNL(v) {
@@ -103,22 +90,38 @@ document.addEventListener("DOMContentLoaded", () => {
           stop_index: (x.stop_index === 0 || x.stop_index) ? Number(x.stop_index) : idx,
           type: (String(x.type || "delivery").toLowerCase() === "pickup") ? "pickup" : "delivery",
           address: String(x.address ?? "").trim(),
-          prio: !!x.prio,
+          prio: !!(x.prio ?? x.priority ?? x.is_prio ?? x.is_priority),
           status: x.status ?? null,
           proof: x.proof ?? null,
+          picked_up_at: x.picked_up_at ?? null,
         }))
         .filter(s => s.address);
     }
 
     // Fallback legacy
     const out = [];
-    if (sh.pickup_address) out.push({ stop_index: 0, type:"pickup", address: String(sh.pickup_address).trim(), prio: !!sh.pickup_prio, status:null, proof:null });
-    if (sh.delivery_address) out.push({ stop_index: 1, type:"delivery", address: String(sh.delivery_address).trim(), prio: !!sh.delivery_prio, status:null, proof:null });
+    if (sh.pickup_address) out.push({
+      stop_index: 0,
+      type: "pickup",
+      address: String(sh.pickup_address).trim(),
+      prio: !!sh.pickup_prio,
+      status: null,
+      proof: null,
+      picked_up_at: null
+    });
+    if (sh.delivery_address) out.push({
+      stop_index: 1,
+      type: "delivery",
+      address: String(sh.delivery_address).trim(),
+      prio: !!sh.delivery_prio,
+      status: null,
+      proof: null,
+      picked_up_at: null
+    });
     return out;
   }
 
   function shipmentTypeNice(sh) {
-    // ✅ dashboard gebruikt shipment_type + shipment_type_other
     if (String(sh?.shipment_type || "").toLowerCase() === "overig") {
       return sh?.shipment_type_other ? String(sh.shipment_type_other) : "Overig";
     }
@@ -126,7 +129,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function shipmentColliNice(sh) {
-    // ✅ dashboard gebruikt colli_count
     const v = sh?.colli_count ?? sh?.colli ?? sh?.colliCount ?? sh?.colli_count;
     return (v === 0 || v) ? String(v) : "-";
   }
@@ -134,6 +136,34 @@ document.addEventListener("DOMContentLoaded", () => {
   async function ensureClient() {
     if (!window.supabaseClient) throw new Error("supabaseClient ontbreekt");
     return window.supabaseClient;
+  }
+
+  // --------- helpers voor tijdpad (stops-volgorde, met juiste tijden)
+  function buildBestTimeForStop(st, events, i) {
+    // 1) pickup: picked_up_at
+    if (st.type === "pickup" && st.picked_up_at) return st.picked_up_at;
+
+    // 2) delivery: proof.delivered_at
+    if (st.type === "delivery" && st.proof?.delivered_at) return st.proof.delivered_at;
+
+    // 3) fallback: events op stop_index (laatste event voor die stop)
+    const si = Number(st.stop_index ?? i);
+    const evs = Array.isArray(events) ? events : [];
+    let best = null;
+
+    for (const ev of evs) {
+      if (ev.stop_index === null || ev.stop_index === undefined) continue;
+      if (Number(ev.stop_index) !== si) continue;
+      if (!ev.created_at) continue;
+      // events komen al ascending binnen; we nemen de laatste die we tegenkomen
+      best = ev.created_at;
+    }
+    return best;
+  }
+
+  function isArchivedStatus(status) {
+    const up = String(status || "").toUpperCase();
+    return up === "GEARCHIVEERD" || up === "GEARCHIVEERD" || up === "ARCHIVED";
   }
 
   function renderShipmentCard(sh, stops) {
@@ -160,6 +190,11 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
+    // ✅ status badge: NIET tonen als gearchiveerd
+    const statusBadgeHtml = isArchivedStatus(sh.status)
+      ? ""
+      : `<div class="status-badge" style="margin-top:8px;">${esc(labelStatus(sh.status))}</div>`;
+
     shipmentCard.innerHTML = `
       <div style="font-weight:800;font-size:16px;">
         ${esc(displayTrackCode(sh.track_code))}
@@ -175,9 +210,7 @@ document.addEventListener("DOMContentLoaded", () => {
         Type: ${esc(shipmentTypeNice(sh))} • Colli: ${esc(shipmentColliNice(sh))}
       </div>
 
-      <div class="status-badge" style="margin-top:8px;">
-        ${esc(labelStatus(sh.status))}
-      </div>
+      ${statusBadgeHtml}
     `;
   }
 
@@ -187,56 +220,44 @@ document.addEventListener("DOMContentLoaded", () => {
     stopsCard.innerHTML = "";
   }
 
-  function buildTimelineFromEvents(events) {
-    const eventsSafe = Array.isArray(events) ? events : [];
-    if (!eventsSafe.length) return "";
-
-    return eventsSafe.map((e) => {
-      const dt = fmtDateTimeNL(e.created_at);
-      const nice = eventTypeToNice(e.event_type || e.status);
-      const si = (e.stop_index === 0 || e.stop_index) ? ` (stop ${Number(e.stop_index) + 1})` : "";
-      const note = e.note ? ` — ${esc(e.note)}` : "";
-      return `<li><b>${esc(nice)}</b>${esc(si)}${dt ? ` • <span class="muted">${esc(dt)}</span>` : ""}${note}</li>`;
-    }).join("");
-  }
-
   function buildTimelinePerStopWithTime(stops, events) {
     const stopsSafe = Array.isArray(stops) ? stops : [];
     const eventsSafe = Array.isArray(events) ? events : [];
 
     if (!stopsSafe.length) return `<li class="muted">Nog geen tijdpad.</li>`;
 
-    // laatste event per stop_index -> gebruik voor tijd achter status
-    const lastEvByStop = new Map();
-    for (const ev of eventsSafe) {
-      if (ev.stop_index === null || ev.stop_index === undefined) continue;
-      const si = Number(ev.stop_index);
-      lastEvByStop.set(si, ev);
-    }
-
     return stopsSafe.map((st, i) => {
-      const type = st.type === "pickup" ? "Ophalen" : "Bezorgen";
-      const statusUpper = String(st.status || "Onbekend").toUpperCase();
-      const statusTxt = labelStatus(statusUpper);
+      const typeLabel = st.type === "pickup" ? "Ophalen" : "Bezorgen";
+      const whenIso = buildBestTimeForStop(st, eventsSafe, i);
+      const whenTxt = whenIso ? fmtDateTimeNL(whenIso) : "—";
 
-      // tijd bepalen: probeer event van deze stop te gebruiken
-      const ev = lastEvByStop.get(Number(st.stop_index ?? i)) || null;
+      // status tonen (maar als null -> —)
+      const statusUpper = String(st.status || "").toUpperCase();
+      const statusTxt = st.status ? labelStatus(statusUpper) : "—";
 
-      // Als event_type niet matcht met stop-status (kan gebeuren), toch tijd tonen als die bestaat.
-      const timeTxt = ev?.created_at ? fmtDateTimeNL(ev.created_at) : "";
+      // probleem note (liefst uit proof/note, anders uit event note)
+      let extraNote = "";
+      if (statusUpper === "PROBLEEM") {
+        // probeer een event note voor deze stop
+        const si = Number(st.stop_index ?? i);
+        const evNote = eventsSafe.findLast
+          ? (eventsSafe.findLast(ev => Number(ev.stop_index) === si && ev.note) || null)
+          : null;
 
-      // bij PROBLEEM note toevoegen indien beschikbaar
-      const problemNote = (statusUpper === "PROBLEEM" && ev?.note) ? ` — ${esc(ev.note)}` : "";
+        const n = (evNote?.note) || "";
+        if (n) extraNote = ` — ${esc(n)}`;
+      }
 
-      return `<li>${i + 1}. ${esc(type)}: ${esc(st.address)} — <b>${esc(statusTxt)}</b>${timeTxt ? ` • <span class="muted">${esc(timeTxt)}</span>` : ""}${problemNote}</li>`;
+      // ✅ jouw gewenste format:
+      // Ophalen: (adres) datum/tijd ophalen
+      // Bezorgen: (adres) datum/tijd bezorgen
+      return `<li>${i + 1}. ${esc(typeLabel)}: ${esc(st.address)} • <span class="muted">${esc(whenTxt)}</span></li>`;
     }).join("");
   }
 
   function renderTimeline(events, stops) {
     if (!eventsCard) return;
 
-    // Jij wilt in het screenshot “per adres” regels met status + datum/tijd
-    // Daarom gebruiken we per-stop tijdpad als hoofdweergave.
     const items = buildTimelinePerStopWithTime(stops, events);
 
     eventsCard.innerHTML = `
@@ -244,6 +265,11 @@ document.addEventListener("DOMContentLoaded", () => {
       <ul style="margin:8px 0 0 18px;">
         ${items}
       </ul>
+
+      <div class="muted" style="margin-top:12px;">
+        Afleverbon na bezorging op te vragen via De Vechtse Koeriers via
+        <b>info@devechtsekoeriers.nl</b>
+      </div>
     `;
   }
 
@@ -274,7 +300,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const stops = normalizeStops(sh);
 
-    // Events ophalen (tijdpad met datum/tijd)
+    // Events ophalen (alleen als fallback voor tijd)
     let events = [];
     try {
       const { data: evData, error: evErr } = await supabaseClient
@@ -285,7 +311,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (!evErr && Array.isArray(evData)) events = evData;
     } catch {
-      // stil falen, we hebben fallback
+      // stil falen
     }
 
     if (subLine) subLine.textContent = "";
@@ -308,7 +334,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const doc = new jsPDF({ unit: "pt", format: "a4" });
 
     let y = 40;
-    const line = (txt, bold=false) => {
+    const line = (txt, bold = false) => {
       doc.setFont("helvetica", bold ? "bold" : "normal");
       doc.setFontSize(11);
       const split = doc.splitTextToSize(String(txt), 520);
@@ -323,42 +349,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
     line(`Trackcode: ${displayTrackCode(sh.track_code)}`, true);
     line(`Klant: ${sh.customer_name || "-"}`);
-    // ✅ FIX: juiste velden voor type + colli
     line(`Type: ${shipmentTypeNice(sh)} • Colli: ${shipmentColliNice(sh)}`);
-    line(`Status: ${labelStatus(sh.status)}`);
+
+    // ✅ status NIET printen als gearchiveerd
+    if (!isArchivedStatus(sh.status)) {
+      line(`Status: ${labelStatus(sh.status)}`);
+    }
 
     y += 10;
     line("Adressen:", true);
     (stops || []).forEach((s, idx) => {
       const tag = s.type === "pickup" ? "Ophalen" : "Bezorgen";
-      line(`${idx + 1}. ${tag}: ${s.address} ${s.prio ? "(PRIO)" : ""} — ${labelStatus(s.status || "Onbekend")}`);
+      const pr = s.prio ? " (PRIO)" : "";
+      line(`${idx + 1}. ${tag}: ${s.address}${pr}`);
     });
 
     y += 10;
     line("Tijdpad:", true);
 
     if (Array.isArray(stops) && stops.length) {
-      // per stop met tijd (net als UI)
-      const lastEvByStop = new Map();
-      if (Array.isArray(events)) {
-        for (const ev of events) {
-          if (ev.stop_index === null || ev.stop_index === undefined) continue;
-          lastEvByStop.set(Number(ev.stop_index), ev);
-        }
-      }
-
       stops.forEach((st, i) => {
-        const ev = lastEvByStop.get(Number(st.stop_index ?? i)) || null;
-        const dt = ev?.created_at ? fmtDateTimeNL(ev.created_at) : "";
-        const statusTxt = labelStatus(st.status || "Onbekend");
-        const type = st.type === "pickup" ? "Ophalen" : "Bezorgen";
-        const extra = dt ? ` • ${dt}` : "";
-        const note = (String(st.status || "").toUpperCase() === "PROBLEEM" && ev?.note) ? ` • ${ev.note}` : "";
-        line(`${i + 1}. ${type}: ${st.address} — ${statusTxt}${extra}${note}`);
+        const tag = st.type === "pickup" ? "Ophalen" : "Bezorgen";
+        const whenIso = buildBestTimeForStop(st, events, i);
+        const whenTxt = whenIso ? fmtDateTimeNL(whenIso) : "—";
+        line(`${i + 1}. ${tag}: ${st.address} • ${whenTxt}`);
       });
     } else {
       line("Nog geen stops beschikbaar.");
     }
+
+    y += 14;
+    line("Afleverbon na bezorging op te vragen via De Vechtse Koeriers via info@devechtsekoeriers.nl");
 
     doc.save(`Track-${displayTrackCode(sh.track_code)}.pdf`);
   }
