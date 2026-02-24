@@ -19,7 +19,7 @@
   window.__dvkDashboardInit = true;
 
   // ---------------- CONFIG
-  const LOGO_URL = "/DVK/assets/logo.png"; // (nu niet gebruikt, maar laten staan)
+  const LOGO_URL = "/images/DVK logo3.jpg"; // (nu niet gebruikt, maar laten staan)
   const BASE_ADDRESS = "Vecht en Gein 28, 1393 PZ Nigtevecht, Nederland";
 
   // ---------------- DOM
