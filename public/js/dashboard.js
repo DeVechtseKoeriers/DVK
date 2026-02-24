@@ -994,29 +994,56 @@ async function downloadAfleverPdf(shipment) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
 
+  // --- LOGO bovenaan ---
+try {
+  const logoDataUrl = await fetchToDataUrl(LOGO_URL); // helper die je al toegevoegd hebt
+  if (logoDataUrl) {
+    // linksboven logo
+    doc.addImage(logoDataUrl, "PNG", 40, 26, 120, 40); 
+  }
+} catch (e) {
+  console.warn("Logo laden mislukt:", e);
+}
+
   const bucket = "dvk-delivery";
   const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
   const pickups = stops.filter(s => s.type === "pickup");
   const deliveries = stops.filter(s => s.type === "delivery");
 
-  // --- HEADER + LOGO
-  const logoDataUrl = await fetchToDataUrl(LOGO_URL); // public file on your site
-  if (logoDataUrl) {
-    // left top logo
-    addImageFit(doc, logoDataUrl, 40, 30, 140, 45);
+  // --- HEADER + LOGO ---
+let logoDataUrl = null;
+try {
+  logoDataUrl = await fetchToDataUrl(LOGO_URL); // /DVK/assets/logo.png
+} catch (e) {
+  console.warn("Logo laden mislukt:", e);
+}
+
+if (logoDataUrl) {
+  // linksboven logo (past netjes in max 140x50)
+  try {
+    addImageFit(doc, logoDataUrl, 40, 30, 140, 50);
+  } catch (e) {
+    // fallback als addImageFit ooit faalt
+    try { doc.addImage(logoDataUrl, "PNG", 40, 30, 140, 50); } catch {}
   }
+}
 
-  let y = 95;
+// titel iets lager (onder logo)
+let y = 95;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text("De Vechtse Koeriers (DVK)", 40, y); y += 18;
+doc.setFont("helvetica", "bold");
+doc.setFontSize(16);
+doc.text("De Vechtse Koeriers (DVK)", 40, y);
 
-  doc.setDrawColor(210);
-  doc.line(40, y, 555, y); y += 22;
+// lijn onder de titel
+y += 12;
+doc.setDrawColor(210);
+doc.line(40, y, 555, y);
+y += 22;
 
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
+// body tekst start
+doc.setFontSize(11);
+doc.setFont("helvetica", "normal");
 
   doc.text(`Trackcode: ${shipment.track_code || ""}`, 40, y); y += 16;
   doc.text(`Klant: ${shipment.customer_name || ""}`, 40, y); y += 16;
