@@ -984,6 +984,203 @@
     return wrap;
   }
 
+  async function downloadAfleverPdf(shipment) {
+  if (!window.jspdf?.jsPDF) {
+    alert("jsPDF ontbreekt. Controleer script tag in dashboard.html.");
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+  const stops = shipment._stopsNorm || normalizeStopsFromDb(shipment);
+  const pickups = stops.filter(s => s.type === "pickup");
+  const deliveries = stops.filter(s => s.type === "delivery");
+
+  // helpers
+  const pageH = 842;
+  const margin = 40;
+  let y = 50;
+
+  function ensureSpace(h = 18) {
+    if (y + h > pageH - 40) {
+      doc.addPage();
+      y = 50;
+    }
+  }
+
+  async function toDataUrl(path) {
+    try {
+      const supabaseClient = await ensureClient();
+      const { data } = supabaseClient.storage.from("dvk-delivery").getPublicUrl(path);
+      const url = data?.publicUrl;
+      if (!url) return null;
+
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      return c.toDataURL("image/png");
+    } catch {
+      return null;
+    }
+  }
+
+  // LOGO
+  try {
+    const logoImg = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = LOGO_URL;
+    });
+
+    const c = document.createElement("canvas");
+    c.width = logoImg.naturalWidth;
+    c.height = logoImg.naturalHeight;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(logoImg, 0, 0);
+    const logoData = c.toDataURL("image/png");
+
+    doc.addImage(logoData, "PNG", margin, 25, 140, 42);
+  } catch {}
+
+  // HEADER
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("De Vechtse Koeriers (DVK)", margin, y);
+  y += 25;
+
+  doc.setDrawColor(180);
+  doc.line(margin, y, 555, y);
+  y += 25;
+
+  // BASIS INFO
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Trackcode: ${shipment.track_code}`, margin, y); y += 18;
+  doc.text(`Klant: ${shipment.customer_name || ""}`, margin, y); y += 18;
+
+  const typeText = shipment.shipment_type === "overig"
+    ? (shipment.shipment_type_other || "overig")
+    : (shipment.shipment_type || "");
+
+  doc.text(`Type: ${typeText}`, margin, y); y += 18;
+  doc.text(`Colli: ${shipment.colli_count ?? ""}`, margin, y); y += 18;
+  doc.text(`Status: ${labelStatus(shipment.status)}`, margin, y); y += 25;
+
+  // ADRESSEN
+  doc.setFont("helvetica", "bold");
+  doc.text(`Ophaaladres${pickups.length > 1 ? "sen" : ""}:`, margin, y); y += 18;
+  doc.setFont("helvetica", "normal");
+  if (!pickups.length) {
+    doc.text("—", margin, y); y += 18;
+  } else {
+    pickups.forEach((p, i) => {
+      ensureSpace();
+      doc.text(`${pickups.length > 1 ? `${i + 1}. ` : ""}${p.address}`, margin, y);
+      y += 18;
+    });
+  }
+
+  y += 10;
+
+  doc.setFont("helvetica", "bold");
+  doc.text(`Bezorgadres${deliveries.length > 1 ? "sen" : ""}:`, margin, y); y += 18;
+  doc.setFont("helvetica", "normal");
+  if (!deliveries.length) {
+    doc.text("—", margin, y); y += 18;
+  } else {
+    deliveries.forEach((d, i) => {
+      ensureSpace();
+      doc.text(`${deliveries.length > 1 ? `${i + 1}. ` : ""}${d.address}`, margin, y);
+      y += 18;
+    });
+  }
+
+  // PROOF PER DELIVERY (handtekening + fotos)
+  for (let i = 0; i < deliveries.length; i++) {
+    const d = deliveries[i];
+    if (!d.proof) continue;
+
+    ensureSpace(30);
+    y += 10;
+    doc.setFont("helvetica", "bold");
+    doc.text(`Aflevering ${deliveries.length > 1 ? i + 1 : ""}`, margin, y);
+    y += 18;
+
+    doc.setFont("helvetica", "normal");
+    doc.text(`Ontvanger: ${d.proof.receiver_name || "—"}`, margin, y); y += 16;
+    doc.text(`Notitie: ${d.proof.delivered_note || "—"}`, margin, y); y += 16;
+    doc.text(`Afgeleverd: ${d.proof.delivered_at ? fmtDT(d.proof.delivered_at) : "—"}`, margin, y); y += 20;
+
+    // Handtekening
+    if (d.proof.signature_path) {
+      const sigData = await toDataUrl(d.proof.signature_path);
+      if (sigData) {
+        ensureSpace(140);
+        doc.setFont("helvetica", "bold");
+        doc.text("Handtekening:", margin, y); y += 10;
+        doc.addImage(sigData, "PNG", margin, y, 220, 80);
+        y += 95;
+      }
+    }
+
+    // Foto's (max 2)
+    const photos = [d.proof.photo1_path, d.proof.photo2_path].filter(Boolean);
+    for (let p = 0; p < photos.length; p++) {
+      const phData = await toDataUrl(photos[p]);
+      if (!phData) continue;
+
+      ensureSpace(240);
+      doc.setFont("helvetica", "bold");
+      doc.text("Foto:", margin, y); y += 10;
+      doc.addImage(phData, "PNG", margin, y, 360, 200);
+      y += 215;
+    }
+  }
+
+  // PAGINA 2: TIJDPAD
+  doc.addPage();
+  y = 70;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text("Tijdpad", margin, y);
+  y += 25;
+
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "normal");
+
+  // Bouw timeline
+  const timeline = [];
+
+  if (shipment.created_at) timeline.push({ label: "Aangemaakt", time: shipment.created_at });
+
+  stops.forEach((st) => {
+    if (st.type === "pickup" && st.picked_up_at) timeline.push({ label: "Opgehaald", time: st.picked_up_at });
+    if (st.type === "delivery" && st.proof?.delivered_at) timeline.push({ label: "Afgeleverd", time: st.proof.delivered_at });
+  });
+
+  if (shipment.archived_at) timeline.push({ label: "Gearchiveerd", time: shipment.archived_at });
+
+  timeline.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+  timeline.forEach((t) => {
+    ensureSpace();
+    doc.text(`${t.label}: ${fmtDT(t.time)}`, margin, y);
+    y += 18;
+  });
+
+  doc.save(`Afleverbon-${shipment.track_code}.pdf`);
+}
+
   function renderShipmentCard(s) {
     const div = document.createElement("div");
     div.className = "shipment";
@@ -1016,6 +1213,7 @@
     const actions = div.querySelector(".actions");
     const sub = div.querySelector(".sub");
 
+    actions.appendChild(mkBtn("Aflever-PDF", () => downloadAfleverPdf(s)));
     actions.appendChild(mkBtn("Verwijderen", () => deleteShipment(s)));
 
     const isArchived = !!s.archived_at || s.status === "GEARCHIVEERD";
