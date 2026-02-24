@@ -276,7 +276,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function load() {
     const code = qParam("code");
     if (!code) {
-      if (subLine) subLine.textContent = "Geen code meegegeven (?code=DVK...)";
+      if (subLine) subLine.textContent = "Geen code ingegeven";
       return;
     }
 
