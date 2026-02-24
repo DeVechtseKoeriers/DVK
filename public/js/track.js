@@ -298,7 +298,14 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const stops = normalizeStops(sh);
+    stops = normalizeStops(sh);
+
+// 🔥 Sorteer op route_rank als die bestaat (zoals chauffeur routeplanner)
+stops.sort((a, b) => {
+  const ra = (a.route_rank === 0 || a.route_rank) ? Number(a.route_rank) : 9999;
+  const rb = (b.route_rank === 0 || b.route_rank) ? Number(b.route_rank) : 9999;
+  return ra - rb;
+});
 
     // Events ophalen (alleen als fallback voor tijd)
     let events = [];
