@@ -34,7 +34,7 @@
 
   // ✅ In jouw HTML heet create-type/colli ook "edit_*" (dus we pakken die)
   const shipmentTypeEl = document.getElementById("edit_shipment_type");
-  const colliCountEl = document.getElementById("create_colli_count");
+  const colliCountEl = document.getElementById("colli_count");
   const otherWrap = document.getElementById("edit_otherWrap");
   const shipmentTypeOtherEl = document.getElementById("edit_shipment_type_other");
 
